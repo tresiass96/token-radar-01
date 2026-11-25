@@ -7,17 +7,29 @@
 //
 // Implied value follows only from the snapshot's own figures, computed at runtime:
 //
-//   comparable_multiple(category)  median mcap/tvl of tokened protocols in the same category,
-//                                  shrunk toward the global median and capped (see below)
+//   regression fit               OLS log10(mcap) = a + b x log10(TVL), fitted at runtime from the
+//                                  snapshot's own tokened protocols (mcap > 0, TVL > 0, n = 128).
+//                                  The fit is a curve, not a flat multiple: b < 1, so market cap
+//                                  grows sub-linearly with TVL and the implicit multiple falls as
+//                                  TVL rises. Coefficients are computed from the snapshot, never
+//                                  hardcoded. residual_sd is the population sd of the log10
+//                                  residuals, sqrt(mean(r^2)) — the same convention the LOO
+//                                  evaluation reports (NumPy .std(), ddof=0).
+//   regression base              10^(a + b x log10(TVL)): the fitted market cap for a protocol
+//                                  of this TVL, before any adjustment.
 //   momentumFactor(change_7d)      1 + clamp(change_7d, -60, 120) / 100 x 0.5, clamped to [0.8, 1.5];
 //                                  null change_7d -> 1.0 (neutral, stated on the page)
 //   maturityFactor(age)            0.8 + min(age, 1095) / 1095 x 0.2; age = as_of - listed_at in days;
 //                                  null listed_at -> 513 days (the pre-token median age, factor 0.8937)
-//   concentrationFactor            the adjustment that turns a category's raw median into the
-//                                  effective multiple: shrink toward the global median with weight
-//                                  n/(n+5), then cap to [0.02, 1.00]; a category with fewer than 3
-//                                  comparables falls back to the global median outright.
-//   implied = round(tvl x comparable_multiple x momentumFactor x maturityFactor),
+//   uncertainty band               [implied / 10^residual_sd, implied x 10^residual_sd], about ±8x:
+//                                  the fit's own residual spread, shown on every row so the page
+//                                  never pretends to price a launch precisely.
+//   comparables cross-check        the v2 multiple (category median mcap/TVL, shrunk toward the
+//                                  global median with w = n/(n+5), capped [0.02, 1.00]; fewer than
+//                                  3 comparables falls back to the global median) and the implied
+//                                  value it would give. Shown for reference on every detail page;
+//                                  it does not drive the ranking.
+//   implied = round(regression base x momentumFactor x maturityFactor),
 //             clamped to [1,000,000, 100,000,000,000,000]
 //
 // No protocol name is ever special-cased: the same functions score every row. Every constant lives
@@ -99,7 +111,7 @@ export const MODEL: ModelConstants = {
   unknown_age_days: 513,
   implied_min: 1_000_000,
   implied_max: 100_000_000_000_000,
-  farm_now_min: 50_000_000,
+  farm_now_min: 25_000_000,
   farm_now_growth_gate: -15,
   farm_now_age_gate: 90,
   watch_min: 10_000_000,
@@ -107,7 +119,7 @@ export const MODEL: ModelConstants = {
 };
 
 /** The model's version label: the dashboard names it and the rules quote it. */
-export const MODEL_VERSION = 'radar-2';
+export const MODEL_VERSION = 'radar-3';
 
 /** How many live-token protocols the Live token view carries, by market cap. */
 export const LIVE_ROWS = 24;
@@ -118,6 +130,18 @@ export interface Comparables {
   global: { median: number; count: number };
   /** Per category: median mcap/tvl and count, only for categories with at least one comparable. */
   byCategory: Map<string, { median: number; count: number }>;
+}
+
+/** The log-log regression fit, computed from the snapshot at runtime (never hardcoded). */
+export interface RegressionFit {
+  /** Intercept a of log10(mcap) = a + b x log10(TVL). */
+  intercept: number;
+  /** Slope b of log10(mcap) = a + b x log10(TVL). */
+  slope: number;
+  /** Population sd of the log10 residuals, sqrt(mean(r^2)) — the uncertainty band's half-width in dex. */
+  residualSd: number;
+  /** How many tokened protocols the fit was computed from. */
+  count: number;
 }
 
 /** A farm step: the action, what it costs, and how long it takes. */
@@ -143,14 +167,24 @@ export interface BoardRow {
   token_status: 'pre-token';
   age_days: number | null;
   implied_value_usd: number;
+  /** The uncertainty band's lower end: implied / 10^residual_sd, clamped to the value range. */
+  value_low_usd: number;
+  /** The uncertainty band's upper end: implied x 10^residual_sd, clamped to the value range. */
+  value_high_usd: number;
   verdict: 'Farm now' | 'Watch' | 'Skip';
   verdict_reason: string;
   model: {
+    regression_intercept: number;
+    regression_slope: number;
+    regression_residual_sd: number;
+    regression_count: number;
+    regression_base: number;
     comparable_multiple: number;
     category_median: number | null;
     comparables_count: number;
     comparable_source: 'category' | 'global';
     concentration_factor: number;
+    comparable_implied: number;
     growth_pct: number;
     momentum_factor: number;
     maturity_factor: number;
@@ -172,14 +206,22 @@ export interface RadarRow {
   listed_at: string | null;
   age_days: number | null;
   implied_value_usd: number;
+  value_low_usd: number;
+  value_high_usd: number;
   verdict: 'Farm now' | 'Watch' | 'Skip';
   verdict_reason: string;
   watchlist: boolean;
+  regression_intercept: number;
+  regression_slope: number;
+  regression_residual_sd: number;
+  regression_count: number;
+  regression_base: number;
   comparable_multiple: number;
   category_median: number | null;
   comparables_count: number;
   comparable_source: 'category' | 'global';
   concentration_factor: number;
+  comparable_implied: number;
   momentum_factor: number;
   maturity_factor: number;
   farm_steps: string[];
@@ -209,6 +251,7 @@ export interface RadarData {
   live_size: number;
   global_median: number;
   median_age_days: number;
+  regression: { intercept: number; slope: number; residual_sd: number; count: number };
   comparables: { category: string; median: number; count: number }[];
   rows: RadarRow[];
   live: LiveRow[];
@@ -275,6 +318,56 @@ export function computeComparables(snapshot: Snapshot): Comparables {
 }
 
 /**
+ * The log-log regression fit, computed from the snapshot itself at runtime: ordinary least squares
+ * of log10(mcap_usd) on log10(tvl_usd) over every tokened protocol with both figures positive
+ * (n = 128 in this snapshot). Closed-form least squares, no dependency. The residual sd is the
+ * population sd of the log10 residuals, sqrt(mean(r^2)) — the same convention the LOO evaluation
+ * reports (NumPy .std(), ddof=0), so the runtime fit reproduces its a ≈ 3.025, b ≈ 0.522,
+ * sd ≈ 0.902. A fit that lands far from those numbers means the pool or the formula is wrong.
+ */
+export function fitRegression(snapshot: Snapshot): RegressionFit {
+  const xs: number[] = [];
+  const ys: number[] = [];
+  for (const p of snapshot.protocols) {
+    if (p.mcap_usd === null || p.mcap_usd <= 0 || p.tvl_usd <= 0) continue;
+    xs.push(Math.log10(p.tvl_usd));
+    ys.push(Math.log10(p.mcap_usd));
+  }
+  const n = xs.length;
+  if (n < 2) throw new SnapshotError('regression needs at least 2 tokened protocols with mcap and TVL');
+  const mx = xs.reduce((a, b) => a + b, 0) / n;
+  const my = ys.reduce((a, b) => a + b, 0) / n;
+  let sxx = 0;
+  let sxy = 0;
+  for (let i = 0; i < n; i++) {
+    sxx += (xs[i]! - mx) ** 2;
+    sxy += (xs[i]! - mx) * (ys[i]! - my);
+  }
+  if (sxx === 0) throw new SnapshotError('regression needs TVL variation in the fit pool');
+  const slope = sxy / sxx;
+  const intercept = my - slope * mx;
+  let ss = 0;
+  for (let i = 0; i < n; i++) {
+    const r = ys[i]! - (intercept + slope * xs[i]!);
+    ss += r * r;
+  }
+  return { intercept, slope, residualSd: Math.sqrt(ss / n), count: n };
+}
+
+/** The fitted market cap for a protocol of this TVL, before momentum and maturity. */
+export function regressionBase(tvlUsd: number, fit: RegressionFit): number {
+  return 10 ** (fit.intercept + fit.slope * Math.log10(tvlUsd));
+}
+
+/** The uncertainty band for an implied value: [implied / 10^sd, implied x 10^sd], clamped to the value range. */
+export function uncertaintyBand(implied: number, fit: RegressionFit, model: ModelConstants = MODEL): { low: number; high: number } {
+  const factor = 10 ** fit.residualSd;
+  const low = Math.min(model.implied_max, Math.max(model.implied_min, Math.round(implied / factor)));
+  const high = Math.min(model.implied_max, Math.max(model.implied_min, Math.round(implied * factor)));
+  return { low, high };
+}
+
+/**
  * The effective comparable multiple for a category, and the concentration adjustment behind it.
  * A category with at least min_comparables comparables is shrunk toward the global median with
  * weight n/(n+shrink_k) and then capped; anything else falls back to the global median outright.
@@ -325,14 +418,21 @@ export function maturityFactor(ageDaysValue: number | null, model: ModelConstant
   return model.maturity_floor + (Math.min(Math.max(age, 0), model.maturity_days) / model.maturity_days) * model.maturity_range;
 }
 
-/** The multipliers and the implied value one protocol gets under `model`. */
+/** The multipliers and the implied value one protocol gets under `model`. The value is priced by the
+ * regression fit; the comparables multiple is computed alongside as a cross-check and the implied
+ * value it would give is carried so the dashboard can show both numbers side by side. */
 export function impliedValue(
   protocol: SnapshotProtocol,
   asOf: string,
   comparables: Comparables,
+  fit: RegressionFit,
   model: ModelConstants = MODEL,
 ): {
   implied: number;
+  base: number;
+  valueLow: number;
+  valueHigh: number;
+  comparableImplied: number;
   multiple: number;
   rawMedian: number | null;
   count: number;
@@ -347,9 +447,13 @@ export function impliedValue(
   const comp = comparableMultiple(protocol.category, comparables, model);
   const mom = momentumFactor(protocol.change_7d, model);
   const maturity = maturityFactor(age, model);
-  const raw = protocol.tvl_usd * comp.multiple * mom.factor * maturity;
+  const base = regressionBase(protocol.tvl_usd, fit);
+  const raw = base * mom.factor * maturity;
   const implied = Math.min(model.implied_max, Math.max(model.implied_min, Math.round(raw)));
-  return { implied, multiple: comp.multiple, rawMedian: comp.rawMedian, count: comp.count, source: comp.source, concentrationFactor: comp.concentrationFactor, growthPct: mom.growthPct, momentum: mom.factor, maturity, age };
+  const band = uncertaintyBand(implied, fit, model);
+  const compRaw = protocol.tvl_usd * comp.multiple * mom.factor * maturity;
+  const comparableImplied = Math.min(model.implied_max, Math.max(model.implied_min, Math.round(compRaw)));
+  return { implied, base, valueLow: band.low, valueHigh: band.high, comparableImplied, multiple: comp.multiple, rawMedian: comp.rawMedian, count: comp.count, source: comp.source, concentrationFactor: comp.concentrationFactor, growthPct: mom.growthPct, momentum: mom.factor, maturity, age };
 }
 
 /** DefiLlama's version-marker rule: a name ending in a release is a pool of another protocol. */
@@ -418,9 +522,9 @@ export function verdictFor(
     if (implied >= model.farm_now_min && !ageOk) {
       return { verdict: 'Watch', reason: `Implied ${fmtUsd(implied)} is strong, but only ${age} days with no token recorded — too young to trust one snapshot.` };
     }
-    return { verdict: 'Watch', reason: `Implied ${fmtUsd(implied)} clears the $10M Watch line but not the $50M Farm now line.` };
+    return { verdict: 'Watch', reason: `Implied ${fmtUsd(implied)} clears the ${fmtUsd(model.watch_min)} Watch line but not the ${fmtUsd(model.farm_now_min)} Farm now line.` };
   }
-  return { verdict: 'Skip', reason: `Implied ${fmtUsd(implied)} is below the $10M Watch line — low priority for now.` };
+  return { verdict: 'Skip', reason: `Implied ${fmtUsd(implied)} is below the ${fmtUsd(model.watch_min)} Watch line — low priority for now.` };
 }
 
 /** A step as one string: its action, then its cost and time, within the gate's 20..600 characters. */
@@ -532,9 +636,10 @@ export function farmSteps(p: SnapshotProtocol, age: number | null, verdict: stri
 }
 
 /** The protocols the board ranks, strongest first, with ranks 1..n. */
-export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL): BoardRow[] {
+export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL, fit: RegressionFit | null = null): BoardRow[] {
   const index = bySlug(snapshot.protocols);
   const comparables = computeComparables(snapshot);
+  const regression = fit ?? fitRegression(snapshot);
   const chosen = new Map<string, SnapshotProtocol>();
   // The watchlist is the floor: every slug, even one the snapshot no longer carries.
   for (const slug of snapshot.watchlist) {
@@ -548,7 +653,7 @@ export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL): B
   }
 
   const scored = [...chosen.values()].map((p) => {
-    const v = impliedValue(p, snapshot.as_of, comparables, model);
+    const v = impliedValue(p, snapshot.as_of, comparables, regression, model);
     const verdict = verdictFor(v.implied, p.change_7d, v.age, p.tvl_usd, model);
     return { p, v, verdict };
   });
@@ -575,16 +680,24 @@ export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL): B
     token_status: 'pre-token',
     age_days: s.v.age,
     implied_value_usd: s.v.implied,
+    value_low_usd: s.v.valueLow,
+    value_high_usd: s.v.valueHigh,
     verdict: s.verdict.verdict,
     verdict_reason: s.verdict.reason,
     model: {
       // Full precision, not rounded: the dashboard recomputes the implied value from these
       // factors and must land on exactly the number board.json carries.
+      regression_intercept: regression.intercept,
+      regression_slope: regression.slope,
+      regression_residual_sd: regression.residualSd,
+      regression_count: regression.count,
+      regression_base: s.v.base,
       comparable_multiple: s.v.multiple,
       category_median: s.v.rawMedian,
       comparables_count: s.v.count,
       comparable_source: s.v.source,
       concentration_factor: s.v.concentrationFactor,
+      comparable_implied: s.v.comparableImplied,
       growth_pct: s.v.growthPct,
       momentum_factor: s.v.momentum,
       maturity_factor: s.v.maturity,
@@ -625,14 +738,22 @@ export function radarRow(row: BoardRow, watchlist: Set<string>): RadarRow {
     listed_at: row.listed_at,
     age_days: row.age_days,
     implied_value_usd: row.implied_value_usd,
+    value_low_usd: row.value_low_usd,
+    value_high_usd: row.value_high_usd,
     verdict: row.verdict,
     verdict_reason: row.verdict_reason,
     watchlist: watchlist.has(row.slug),
+    regression_intercept: row.model.regression_intercept,
+    regression_slope: row.model.regression_slope,
+    regression_residual_sd: row.model.regression_residual_sd,
+    regression_count: row.model.regression_count,
+    regression_base: row.model.regression_base,
     comparable_multiple: row.model.comparable_multiple,
     category_median: row.model.category_median,
     comparables_count: row.model.comparables_count,
     comparable_source: row.model.comparable_source,
     concentration_factor: row.model.concentration_factor,
+    comparable_implied: row.model.comparable_implied,
     momentum_factor: row.model.momentum_factor,
     maturity_factor: row.model.maturity_factor,
     farm_steps: row.farm_steps,
@@ -641,7 +762,8 @@ export function radarRow(row: BoardRow, watchlist: Set<string>): RadarRow {
 
 /** Everything the dashboard renders, from the snapshot. */
 export function buildRadar(snapshot: Snapshot, model: ModelConstants = MODEL): { board: BoardRow[]; radar: RadarData } {
-  const board = buildBoard(snapshot, model);
+  const regression = fitRegression(snapshot);
+  const board = buildBoard(snapshot, model, regression);
   const comparables = computeComparables(snapshot);
   const live = liveRows(snapshot);
   const watchlist = new Set(snapshot.watchlist);
@@ -661,6 +783,7 @@ export function buildRadar(snapshot: Snapshot, model: ModelConstants = MODEL): {
     live_size: live.length,
     global_median: comparables.global.median,
     median_age_days: model.unknown_age_days,
+    regression: { intercept: regression.intercept, slope: regression.slope, residual_sd: regression.residualSd, count: regression.count },
     comparables: comparablesList,
     rows: board.map((r) => radarRow(r, watchlist)),
     live,
@@ -727,6 +850,12 @@ export function boardIssue(board: BoardRow[], snapshot: Snapshot): string | null
     if (steps.length < 3 || steps.length > 12) return `${r.slug} has ${steps.length} farm steps`;
     for (const s of steps) if (s.length < 20 || s.length > 600) return `${r.slug} has a farm step of ${s.length} characters`;
     if (!Number.isSafeInteger(r.implied_value_usd) || r.implied_value_usd <= 0) return `${r.slug} has implied value ${r.implied_value_usd}`;
+    if (!Number.isSafeInteger(r.value_low_usd) || !Number.isSafeInteger(r.value_high_usd) || r.value_low_usd <= 0 || r.value_high_usd <= 0) {
+      return `${r.slug} has a bad uncertainty band ${r.value_low_usd}–${r.value_high_usd}`;
+    }
+    if (r.value_low_usd > r.implied_value_usd || r.implied_value_usd > r.value_high_usd) {
+      return `${r.slug} has implied value ${r.implied_value_usd} outside its band ${r.value_low_usd}–${r.value_high_usd}`;
+    }
   }
   return null;
 }
