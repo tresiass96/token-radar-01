@@ -11,8 +11,8 @@
 //                                  shrunk toward the global median and capped (see below)
 //   momentumFactor(change_7d)      1 + clamp(change_7d, -60, 120) / 100 x 0.5, clamped to [0.8, 1.5];
 //                                  null change_7d -> 1.0 (neutral, stated on the page)
-//   maturityFactor(age)            0.6 + min(age, 1095) / 1095 x 0.4; age = as_of - listed_at in days;
-//                                  null listed_at -> 513 days (the pre-token median age)
+//   maturityFactor(age)            0.8 + min(age, 1095) / 1095 x 0.2; age = as_of - listed_at in days;
+//                                  null listed_at -> 513 days (the pre-token median age, factor 0.8937)
 //   concentrationFactor            the adjustment that turns a category's raw median into the
 //                                  effective multiple: shrink toward the global median with weight
 //                                  n/(n+5), then cap to [0.02, 1.00]; a category with fewer than 3
@@ -93,8 +93,8 @@ export const MODEL: ModelConstants = {
   momentum_lo: 0.8,
   momentum_hi: 1.5,
   momentum_null: 1.0,
-  maturity_floor: 0.6,
-  maturity_range: 0.4,
+  maturity_floor: 0.8,
+  maturity_range: 0.2,
   maturity_days: 1095,
   unknown_age_days: 513,
   implied_min: 1_000_000,

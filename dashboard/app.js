@@ -19,8 +19,8 @@
   var LO = M.momentum_lo !== undefined ? M.momentum_lo : 0.8;
   var HI = M.momentum_hi !== undefined ? M.momentum_hi : 1.5;
   var W = M.momentum_weight !== undefined ? M.momentum_weight : 0.5;
-  var MFLOOR = M.maturity_floor !== undefined ? M.maturity_floor : 0.6;
-  var MRANGE = M.maturity_range !== undefined ? M.maturity_range : 0.4;
+  var MFLOOR = M.maturity_floor !== undefined ? M.maturity_floor : 0.8;
+  var MRANGE = M.maturity_range !== undefined ? M.maturity_range : 0.2;
   var MDAYS = M.maturity_days !== undefined ? M.maturity_days : 1095;
   var MEDAGE = M.median_age_days !== undefined ? M.median_age_days : (DATA && DATA.median_age_days !== undefined ? DATA.median_age_days : 513);
   var GMED = (DATA && DATA.global_median !== undefined) ? DATA.global_median : 0.1689;
@@ -333,7 +333,7 @@
       return '<li><b>Step ' + (i + 1) + '</b> ' + esc(s) + '</li>';
     }).join('');
     var momWhy = row.change_7d === null ? '7-day change not recorded, so momentum is neutral 1.00.' : '7-day TVL change ' + fmtPct(row.change_7d) + ' clamped to [-60, 120], scaled by weight ' + num2.format(W) + ', bounded [' + num2.format(LO) + ', ' + num2.format(HI) + '].';
-    var matWhy = row.age_days === null ? 'Listed date not recorded, so the median age of ' + num0.format(MEDAGE) + ' days is used (factor 0.787).' : num0.format(row.age_days) + ' days since first listing, of a ' + num0.format(MDAYS) + '-day maturity window.';
+    var matWhy = row.age_days === null ? 'Listed date not recorded, so the median age of ' + num0.format(MEDAGE) + ' days is used (factor ' + num4.format(maturityFactor(null)) + ').' : num0.format(row.age_days) + ' days since first listing, of a ' + num0.format(MDAYS) + '-day maturity window.';
     var shrinkWhy;
     if (comp.count < 3 || comp.rawMedian === null || comp.rawMedian === undefined) {
       if (comp.rawMedian === null || comp.rawMedian === undefined) shrinkWhy = 'Fewer than 3 comparables in this category, so the global median ' + num4.format(GMED) + ' is used directly; concentration factor 1.00.';
@@ -368,7 +368,7 @@
       '<div><span>Token status</span><b>records no token</b></div>' +
       '<div><span>Watchlist</span><b>' + (row.watchlist ? 'Yes — on the 40-protocol watchlist' : 'No — an early candidate below the floor') + '</b></div>' +
       '</div><p style="margin-top:12px">Comparables come from tokened protocols in the same category; when a category has fewer than 3, the global median of ' + fmtMult(DATA.global_median) + ' is used instead.</p></section></div>' +
-      '<section class="card" style="margin-top:24px"><h2>Farm plan — ' + esc(row.name) + '</h2><p>Built from this protocol’s category, chains, TVL and age. Principal is set by TVL band ($50–$1,000); gas follows the primary chain (' + esc((row.chains && row.chains.length) ? row.chains[0] : 'main chain') + ': ' + esc(gasFor((row.chains && row.chains.length) ? row.chains[0] : '')) + ' per transaction).</p><ol class="steps">' + stepsHtml + '</ol></section>';
+      '<section class="card" style="margin-top:16px"><h2>Farm plan — ' + esc(row.name) + '</h2><p>Built from this protocol’s category, chains, TVL and age. Principal is set by TVL band ($50–$1,000); gas follows the primary chain (' + esc((row.chains && row.chains.length) ? row.chains[0] : 'main chain') + ': ' + esc(gasFor((row.chains && row.chains.length) ? row.chains[0] : '')) + ' per transaction).</p><ol class="steps">' + stepsHtml + '</ol></section>';
   }
 
   function renderMethodology() {
@@ -382,7 +382,7 @@
       '<table class="walk"><thead><tr><th>Category</th><th style="text-align:right">Median multiple</th><th style="text-align:right">Comparables</th></tr></thead><tbody>' + compRows + '</tbody></table></section>' +
       '<section><h2>Factor bounds</h2><ul>' +
       '<li><b>Momentum:</b> clamp(1 + clamp(change_7d, −60, 120) / 100 × ' + num2.format(W) + ', ' + num2.format(LO) + ', ' + num2.format(HI) + '). Null 7-day change is neutral 1.0.</li>' +
-      '<li><b>Maturity:</b> ' + num2.format(MFLOOR) + ' + min(age_days, ' + num0.format(MDAYS) + ') / ' + num0.format(MDAYS) + ' × ' + num2.format(MRANGE) + '. Age is days since first listing; a missing listed date uses the median age of ' + num0.format(MEDAGE) + ' days (factor 0.787).</li>' +
+      '<li><b>Maturity:</b> ' + num2.format(MFLOOR) + ' + min(age_days, ' + num0.format(MDAYS) + ') / ' + num0.format(MDAYS) + ' × ' + num2.format(MRANGE) + '. Age is days since first listing; a missing listed date uses the median age of ' + num0.format(MEDAGE) + ' days (factor ' + num4.format(maturityFactor(null)) + ').</li>' +
       '<li><b>Concentration:</b> no fourth multiplier. The category median is shrunk toward the global median 0.1689 with w = n/(n+5), then capped to [0.02, 1.00]; concentration_factor = effective / raw median.</li>' +
       '<li><b>Verdict:</b> Farm now needs implied value ≥ $50M, 7-day change ≥ −15% (or null) and age ≥ 90 days (or null); Watch needs implied value ≥ $10M and 7-day change ≥ −30% (or null); otherwise Skip. The decisive reason is on each row and detail page.</li>' +
       '<li><b>Farm principal:</b> set by TVL band — $1,000 at $1B+, $500 at $100M+, $250 at $50M+, $100 at $10M+, $50 below that. Gas follows the primary chain: Ethereum L1 $2–$15, L2s $0.05–$0.50, Solana ~$0.01, BSC / Avalanche / Fantom / Cronos $0.10–$1, other chains ~$1.</li>' +
