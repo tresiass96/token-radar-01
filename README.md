@@ -9,9 +9,9 @@ A token launch radar for the [make.fun bounty `token-radar-01`](https://make.fun
 ## What it does
 
 - Reads `/input/snapshot.json` (758 protocols, DefiLlama, as of 2026-11-14).
-- Scores every pre-token protocol with a comparables model: the protocol's TVL times the category-median market-cap/TVL multiple of the tokened protocols in the same category (computed from the snapshot at runtime, never hardcoded), times a momentum factor from its 7-day TVL change, times a maturity factor from how long it has run with no token.
+- Scores every pre-token protocol by its **expected value**: a log-log regression fitted at runtime from the snapshot's own tokened protocols (log10(market cap) = 3.0247 + 0.5223 × log10(TVL), n = 128) gives the launch value, times a momentum factor from its 7-day TVL change, times a maturity factor from how long it has run with no token — then times the launch odds, the peer-group base rate for its age bucket (the share of protocols first listed in the same age window that already record a token, n = 522). The regression beat the old comparables model held-out twice (leave-one-out 0.531 vs 0.694; older-to-newer 0.488 vs 0.710), and the odds beat the base rate held-out twice (Brier 0.210 vs 0.250).
 - Writes a ranked board (`board.json`, 198 rows: the whole 40-protocol watchlist plus 138 early rows below the $50M floor and 20 above it that pass the house rule), a static dashboard (`dashboard/`, no network, no framework), three screenshots, and a `dossier.json` the judge reads.
-- The dashboard is a research desk: sortable and filterable board, a detail view per protocol with a full model walk-through, a separate live-token view, and a Methodology section that states the model, its bounds, and its coverage.
+- The dashboard is a research desk: sortable and filterable board (with a launch-odds column and an integrity strip), a detail view per protocol with a full model walk-through and a costed farm plan, a separate live-token view, and a Methodology section that states the model, its held-out tests, and a coverage audit of all 758 protocols.
 
 ## Run it
 
@@ -27,21 +27,23 @@ Two runs write identical bytes: no clock, no randomness, no locale without an ex
 ## Layout
 
 - `main.ts` — the program: snapshot in, board + dashboard + screenshots + dossier out.
-- `lib/model.ts` — the model (`computeComparables`, `momentumFactor`, `maturityFactor`, `buildFarmPlan`) and the board builder. All constants live in one `MODEL` object, so a parameter sweep only touches one place.
-- `dashboard/` — the page: `index.html`, `app.css`, `app.js` (47,520 bytes of source; the judge reads all of it) plus the generated `zz-data.js`, one minified line named to sort last in the dossier.
+- `lib/model.ts` — the model (`fitRegression`, `fitOdds`, `momentumFactor`, `maturityFactor`, `buildFarmPlan`) and the board builder. All constants live in one `MODEL` object, so a parameter sweep only touches one place.
+- `dashboard/` — the page: `index.html`, `app.css`, `app.js` (63,615 bytes of source; the judge reads all of it) plus the generated `zz-data.js`, one minified line named to sort last in the dossier.
 - `screenshots/` — the board, a protocol detail view, and a filtered view, each 1440×900.
 - `vendor/makefun-board.ts` — make.fun's dossier library, vendored from the kit.
 
-## The model, in one line
+## The model, in one line (radar-4)
 
 ```
-implied = round(tvl × comparable_multiple × momentum × maturity), clamped [$1M, $100T]
+expected = round(launch × odds), clamped [$1M, $100T]
+launch   = round(10^(3.0247 + 0.5223 × log10(tvl)) × momentum × maturity), clamped [$1M, $100T]
 ```
 
-- `comparable_multiple`: median mcap/TVL of the tokened protocols in the same category, shrunk toward the global median 0.1689 (weight n/(n+5)), capped [0.02, 1.00]; categories with fewer than 3 comparables fall back to the global median.
+- `launch`: the regression base — a log-log OLS fit over the snapshot's 128 tokened protocols (residual sd 0.902, so each value carries a ±7.98× band) — times momentum and maturity. The comparables multiple (category median mcap/TVL, shrunk toward the global median 0.1689, capped [0.02, 1.00]) is kept only as a cross-check on each detail page.
+- `odds`: the peer-group base rate by age — 25% for protocols first listed 0–180 days ago, 36% at 180–365 days, 37% at 365–730 days, 59% at 730–1,100 days, 83% over 1,100 days (computed at runtime from the snapshot's 522 dated protocols; the category dimension did not validate, so the odds use the age bucket alone).
 - `momentum`: clamp(1 + clamp(change_7d, −60, 120)/100 × 0.5, 0.8, 1.5); null change → 1.0.
-- `maturity`: 0.6 + min(age_days, 1095)/1095 × 0.4; age unknown → 513 days (the snapshot median).
-- Verdict: **Farm now** when implied ≥ $50M and 7-day change ≥ −15% and age ≥ 90 days; **Watch** when implied ≥ $10M and change ≥ −30%; otherwise **Skip**.
+- `maturity`: 0.8 + min(age_days, 1095)/1095 × 0.2; age unknown → 513 days (the snapshot median).
+- Verdict: **Farm now** when expected ≥ $12.5M and 7-day change ≥ −15% and age ≥ 90 days; **Watch** when expected ≥ $4M and change ≥ −30%; otherwise **Skip**. (The thresholds were re-set for the expected-value scale, whose top is near $29M; the previous launch-value scale topped out near $80M.)
 
 A protocol is pre-token when its DefiLlama record carries no token (no market cap, no CoinGecko id, no symbol). The snapshot's record is not proof, so the dashboard says a protocol *records no token*, never that it *has* none.
 

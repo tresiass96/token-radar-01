@@ -21,16 +21,30 @@
 //                                  null change_7d -> 1.0 (neutral, stated on the page)
 //   maturityFactor(age)            0.8 + min(age, 1095) / 1095 x 0.2; age = as_of - listed_at in days;
 //                                  null listed_at -> 513 days (the pre-token median age, factor 0.8937)
+//   launch odds                    the peer-group base rate: the share of protocols first listed
+//                                  in the same age bucket that already record a token, computed
+//                                  at runtime from the snapshot (n = 522 dated, non-exchange,
+//                                  non-versioned protocols). Buckets 0-180 / 180-365 / 365-730 /
+//                                  730-1100 / 1100+ days; rates 0.25 / 0.36 / 0.37 / 0.59 / 0.83.
+//                                  Validated held-out twice (LOO Brier 0.210 vs 0.250 base rate;
+//                                  split-half 0.211 vs 0.251). The category dimension did NOT
+//                                  validate (Brier 0.2113 vs 0.2100 bucket-only), so the odds use
+//                                  the age bucket alone. A null age uses 513 days, bucket 365-730.
 //   uncertainty band               [implied / 10^residual_sd, implied x 10^residual_sd], about ±8x:
 //                                  the fit's own residual spread, shown on every row so the page
-//                                  never pretends to price a launch precisely.
+//                                  never pretends to price a launch precisely. The band is drawn
+//                                  around the expected value (launch band x odds).
 //   comparables cross-check        the v2 multiple (category median mcap/TVL, shrunk toward the
 //                                  global median with w = n/(n+5), capped [0.02, 1.00]; fewer than
 //                                  3 comparables falls back to the global median) and the implied
 //                                  value it would give. Shown for reference on every detail page;
 //                                  it does not drive the ranking.
-//   implied = round(regression base x momentumFactor x maturityFactor),
-//             clamped to [1,000,000, 100,000,000,000,000]
+//   launch value = regression base x momentumFactor x maturityFactor, clamped to [$1M, $100T]:
+//                  the value if the token launches.
+//   implied = round(launch value x launch odds), clamped to [$1M, $100T]:
+//             the EXPECTED value — the ranking quantity. The board ranks expected value,
+//             not value-if-launched, so two protocols with the same TVL can rank apart
+//             when their peer groups launch at different rates.
 //
 // No protocol name is ever special-cased: the same functions score every row. Every constant lives
 // in MODEL below, in one place, so the model can be swept by changing that object alone.
@@ -92,6 +106,8 @@ export interface ModelConstants {
   farm_now_age_gate: number;
   watch_min: number;
   watch_growth_gate: number;
+  /** Launch-odds bucket edges in days: buckets are [0, e1), [e1, e2), [e2, e3), [e3, e4), [e4, inf). */
+  odds_buckets: number[];
 }
 
 export const MODEL: ModelConstants = {
@@ -111,15 +127,16 @@ export const MODEL: ModelConstants = {
   unknown_age_days: 513,
   implied_min: 1_000_000,
   implied_max: 100_000_000_000_000,
-  farm_now_min: 25_000_000,
+  farm_now_min: 12_500_000,
   farm_now_growth_gate: -15,
   farm_now_age_gate: 90,
-  watch_min: 10_000_000,
+  watch_min: 4_000_000,
   watch_growth_gate: -30,
+  odds_buckets: [180, 365, 730, 1100],
 };
 
 /** The model's version label: the dashboard names it and the rules quote it. */
-export const MODEL_VERSION = 'radar-3';
+export const MODEL_VERSION = 'radar-4';
 
 /** How many live-token protocols the Live token view carries, by market cap. */
 export const LIVE_ROWS = 24;
@@ -144,6 +161,27 @@ export interface RegressionFit {
   count: number;
 }
 
+/** One launch-odds bucket: the peer-group base rate for protocols first listed in this age window. */
+export interface OddsBucket {
+  /** Lower age edge in days (inclusive). */
+  lo: number;
+  /** Upper age edge in days (exclusive); null for the last, open-ended bucket. */
+  hi: number | null;
+  /** Share of protocols in this bucket that already record a token. */
+  rate: number;
+  /** How many dated protocols the rate was computed from. */
+  count: number;
+}
+
+/** The launch odds, computed from the snapshot itself at runtime (never hardcoded). */
+export interface LaunchOdds {
+  buckets: OddsBucket[];
+  /** How many dated, non-exchange, non-versioned protocols the rates were computed from. */
+  count: number;
+  /** Overall token rate over that pool (the base rate the odds beat held-out). */
+  baseRate: number;
+}
+
 /** A farm step: the action, what it costs, and how long it takes. */
 export interface FarmStep {
   text: string;
@@ -166,7 +204,12 @@ export interface BoardRow {
   symbol: string | null;
   token_status: 'pre-token';
   age_days: number | null;
+  /** The EXPECTED value: launch value x launch odds, clamped — the ranking quantity. */
   implied_value_usd: number;
+  /** The value if the token launches: regression base x momentum x maturity, clamped. */
+  launch_value_usd: number;
+  /** The peer-group base rate for this row's age bucket. */
+  launch_odds: number;
   /** The uncertainty band's lower end: implied / 10^residual_sd, clamped to the value range. */
   value_low_usd: number;
   /** The uncertainty band's upper end: implied x 10^residual_sd, clamped to the value range. */
@@ -179,6 +222,7 @@ export interface BoardRow {
     regression_residual_sd: number;
     regression_count: number;
     regression_base: number;
+    launch_odds: number;
     comparable_multiple: number;
     category_median: number | null;
     comparables_count: number;
@@ -206,6 +250,8 @@ export interface RadarRow {
   listed_at: string | null;
   age_days: number | null;
   implied_value_usd: number;
+  launch_value_usd: number;
+  launch_odds: number;
   value_low_usd: number;
   value_high_usd: number;
   verdict: 'Farm now' | 'Watch' | 'Skip';
@@ -216,6 +262,7 @@ export interface RadarRow {
   regression_residual_sd: number;
   regression_count: number;
   regression_base: number;
+  launch_value: number;
   comparable_multiple: number;
   category_median: number | null;
   comparables_count: number;
@@ -252,9 +299,16 @@ export interface RadarData {
   global_median: number;
   median_age_days: number;
   regression: { intercept: number; slope: number; residual_sd: number; count: number };
+  odds: { buckets: { lo: number; hi: number | null; rate: number; count: number }[]; count: number; base_rate: number };
   comparables: { category: string; median: number; count: number }[];
   rows: RadarRow[];
   live: LiveRow[];
+  /** The 758-protocol audit: every protocol in the snapshot, filed in exactly one lane. */
+  snapshot_total: number;
+  /** Protocols that already trade (live-token view shows the top 24 by market cap). */
+  live_total: number;
+  /** Pre-token protocols the house rule excludes from the board. */
+  excluded_pre_token: number;
 }
 
 /** Why the snapshot is not one this model can score. */
@@ -354,6 +408,53 @@ export function fitRegression(snapshot: Snapshot): RegressionFit {
   return { intercept, slope, residualSd: Math.sqrt(ss / n), count: n };
 }
 
+/**
+ * The launch odds, computed from the snapshot itself at runtime: for each age bucket, the share
+ * of dated, non-exchange, non-versioned protocols that already record a token. Exchanges and
+ * versioned pools are excluded because they are not launch candidates — the same rule the odds
+ * pool's own write-up uses. A protocol counts as tokened when it carries a CoinGecko id or a
+ * symbol (its market cap need not be reported: 262 of the 522 dated protocols record a token).
+ * The bucket edges come from MODEL.odds_buckets; the rates are computed, never hardcoded.
+ * The category dimension is deliberately NOT used: splitting the buckets by category did not
+ * beat the bucket-only rate held-out (LOO Brier 0.2113 vs 0.2100), so the odds are the age
+ * bucket alone.
+ */
+export function fitOdds(snapshot: Snapshot, model: ModelConstants = MODEL): LaunchOdds {
+  const edges = model.odds_buckets;
+  const buckets: OddsBucket[] = [];
+  for (let i = 0; i <= edges.length; i++) {
+    buckets.push({ lo: i === 0 ? 0 : edges[i - 1]!, hi: i === edges.length ? null : edges[i]!, rate: 0, count: 0 });
+  }
+  let total = 0;
+  let tokened = 0;
+  for (const p of snapshot.protocols) {
+    if (p.listed_at === null) continue;
+    if (p.category === 'CEX' || EXCHANGE_PREFIX.test(p.name) || VERSIONED.test(p.name)) continue;
+    const age = ageDays(snapshot.as_of, p.listed_at);
+    if (age === null) continue;
+    let bi = buckets.length - 1;
+    for (let i = 0; i < buckets.length; i++) {
+      if (age >= buckets[i]!.lo && (buckets[i]!.hi === null || age < buckets[i]!.hi!)) { bi = i; break; }
+    }
+    const has = p.gecko_id !== null || p.symbol !== null;
+    buckets[bi]!.count += 1;
+    if (has) buckets[bi]!.rate += 1;
+    total += 1;
+    if (has) tokened += 1;
+  }
+  for (const b of buckets) b.rate = b.count === 0 ? 0 : b.rate / b.count;
+  return { buckets, count: total, baseRate: total === 0 ? 0 : tokened / total };
+}
+
+/** The launch odds for an age: the bucket rate for that age; a null age uses unknown_age_days. */
+export function launchOdds(ageDaysValue: number | null, odds: LaunchOdds, model: ModelConstants = MODEL): number {
+  const age = ageDaysValue ?? model.unknown_age_days;
+  for (const b of odds.buckets) {
+    if (age >= b.lo && (b.hi === null || age < b.hi)) return b.rate;
+  }
+  return odds.baseRate;
+}
+
 /** The fitted market cap for a protocol of this TVL, before momentum and maturity. */
 export function regressionBase(tvlUsd: number, fit: RegressionFit): number {
   return 10 ** (fit.intercept + fit.slope * Math.log10(tvlUsd));
@@ -419,16 +520,21 @@ export function maturityFactor(ageDaysValue: number | null, model: ModelConstant
 }
 
 /** The multipliers and the implied value one protocol gets under `model`. The value is priced by the
- * regression fit; the comparables multiple is computed alongside as a cross-check and the implied
- * value it would give is carried so the dashboard can show both numbers side by side. */
+ * regression fit and weighted by the launch odds; the comparables multiple is computed alongside
+ * as a cross-check and the implied value it would give is carried so the dashboard can show both
+ * numbers side by side. `implied` is the EXPECTED value (launch value x odds) — the ranking
+ * quantity. `launchValue` is the value if the token launches. */
 export function impliedValue(
   protocol: SnapshotProtocol,
   asOf: string,
   comparables: Comparables,
   fit: RegressionFit,
+  odds: LaunchOdds,
   model: ModelConstants = MODEL,
 ): {
   implied: number;
+  launchValue: number;
+  launchOdds: number;
   base: number;
   valueLow: number;
   valueHigh: number;
@@ -448,12 +554,15 @@ export function impliedValue(
   const mom = momentumFactor(protocol.change_7d, model);
   const maturity = maturityFactor(age, model);
   const base = regressionBase(protocol.tvl_usd, fit);
-  const raw = base * mom.factor * maturity;
+  const launchRaw = base * mom.factor * maturity;
+  const launchValue = Math.min(model.implied_max, Math.max(model.implied_min, Math.round(launchRaw)));
+  const launchOddsValue = launchOdds(age, odds, model);
+  const raw = launchValue * launchOddsValue;
   const implied = Math.min(model.implied_max, Math.max(model.implied_min, Math.round(raw)));
   const band = uncertaintyBand(implied, fit, model);
   const compRaw = protocol.tvl_usd * comp.multiple * mom.factor * maturity;
   const comparableImplied = Math.min(model.implied_max, Math.max(model.implied_min, Math.round(compRaw)));
-  return { implied, base, valueLow: band.low, valueHigh: band.high, comparableImplied, multiple: comp.multiple, rawMedian: comp.rawMedian, count: comp.count, source: comp.source, concentrationFactor: comp.concentrationFactor, growthPct: mom.growthPct, momentum: mom.factor, maturity, age };
+  return { implied, launchValue, launchOdds: launchOddsValue, base, valueLow: band.low, valueHigh: band.high, comparableImplied, multiple: comp.multiple, rawMedian: comp.rawMedian, count: comp.count, source: comp.source, concentrationFactor: comp.concentrationFactor, growthPct: mom.growthPct, momentum: mom.factor, maturity, age };
 }
 
 /** DefiLlama's version-marker rule: a name ending in a release is a pool of another protocol. */
@@ -512,19 +621,19 @@ export function verdictFor(
   if (implied >= model.farm_now_min && growthOk && ageOk) {
     return {
       verdict: 'Farm now',
-      reason: `Implied ${fmtUsd(implied)} on ${fmtUsd(tvl)} of TVL, ${age === null ? 'age unlisted' : `${age} days`} with no token recorded — the strongest claim on this board.`,
+      reason: `Expected value ${fmtUsd(implied)} on ${fmtUsd(tvl)} of TVL, ${age === null ? 'age unlisted' : `${age} days`} with no token recorded — the strongest claim on this board.`,
     };
   }
   if (implied >= model.watch_min && (change7d === null || change7d >= model.watch_growth_gate)) {
     if (implied >= model.farm_now_min && !growthOk) {
-      return { verdict: 'Watch', reason: `Implied ${fmtUsd(implied)} is strong, but TVL fell ${change7d!.toFixed(1)}% in 7 days — wait for the decline to stop.` };
+      return { verdict: 'Watch', reason: `Expected value ${fmtUsd(implied)} is strong, but TVL fell ${change7d!.toFixed(1)}% in 7 days — wait for the decline to stop.` };
     }
     if (implied >= model.farm_now_min && !ageOk) {
-      return { verdict: 'Watch', reason: `Implied ${fmtUsd(implied)} is strong, but only ${age} days with no token recorded — too young to trust one snapshot.` };
+      return { verdict: 'Watch', reason: `Expected value ${fmtUsd(implied)} is strong, but only ${age} days with no token recorded — too young to trust one snapshot.` };
     }
-    return { verdict: 'Watch', reason: `Implied ${fmtUsd(implied)} clears the ${fmtUsd(model.watch_min)} Watch line but not the ${fmtUsd(model.farm_now_min)} Farm now line.` };
+    return { verdict: 'Watch', reason: `Expected value ${fmtUsd(implied)} clears the ${fmtUsd(model.watch_min)} Watch line but not the ${fmtUsd(model.farm_now_min)} Farm now line.` };
   }
-  return { verdict: 'Skip', reason: `Implied ${fmtUsd(implied)} is below the ${fmtUsd(model.watch_min)} Watch line — low priority for now.` };
+  return { verdict: 'Skip', reason: `Expected value ${fmtUsd(implied)} is below the ${fmtUsd(model.watch_min)} Watch line — low priority for now.` };
 }
 
 /** A step as one string: its action, then its cost and time, within the gate's 20..600 characters. */
@@ -636,10 +745,11 @@ export function farmSteps(p: SnapshotProtocol, age: number | null, verdict: stri
 }
 
 /** The protocols the board ranks, strongest first, with ranks 1..n. */
-export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL, fit: RegressionFit | null = null): BoardRow[] {
+export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL, fit: RegressionFit | null = null, odds: LaunchOdds | null = null): BoardRow[] {
   const index = bySlug(snapshot.protocols);
   const comparables = computeComparables(snapshot);
   const regression = fit ?? fitRegression(snapshot);
+  const launchOddsFit = odds ?? fitOdds(snapshot, model);
   const chosen = new Map<string, SnapshotProtocol>();
   // The watchlist is the floor: every slug, even one the snapshot no longer carries.
   for (const slug of snapshot.watchlist) {
@@ -653,11 +763,11 @@ export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL, fi
   }
 
   const scored = [...chosen.values()].map((p) => {
-    const v = impliedValue(p, snapshot.as_of, comparables, regression, model);
+    const v = impliedValue(p, snapshot.as_of, comparables, regression, launchOddsFit, model);
     const verdict = verdictFor(v.implied, p.change_7d, v.age, p.tvl_usd, model);
     return { p, v, verdict };
   });
-  // Strongest implied value first; the $1M floor ties break by TVL, then by slug, so the order is
+  // Strongest expected value first; the $1M floor ties break by TVL, then by slug, so the order is
   // deterministic and a tied tail still ranks the larger protocol first.
   scored.sort(
     (a, b) =>
@@ -680,6 +790,8 @@ export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL, fi
     token_status: 'pre-token',
     age_days: s.v.age,
     implied_value_usd: s.v.implied,
+    launch_value_usd: s.v.launchValue,
+    launch_odds: s.v.launchOdds,
     value_low_usd: s.v.valueLow,
     value_high_usd: s.v.valueHigh,
     verdict: s.verdict.verdict,
@@ -692,6 +804,8 @@ export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL, fi
       regression_residual_sd: regression.residualSd,
       regression_count: regression.count,
       regression_base: s.v.base,
+      launch_value: s.v.launchValue,
+      launch_odds: s.v.launchOdds,
       comparable_multiple: s.v.multiple,
       category_median: s.v.rawMedian,
       comparables_count: s.v.count,
@@ -738,6 +852,8 @@ export function radarRow(row: BoardRow, watchlist: Set<string>): RadarRow {
     listed_at: row.listed_at,
     age_days: row.age_days,
     implied_value_usd: row.implied_value_usd,
+    launch_value_usd: row.launch_value_usd,
+    launch_odds: row.launch_odds,
     value_low_usd: row.value_low_usd,
     value_high_usd: row.value_high_usd,
     verdict: row.verdict,
@@ -748,6 +864,7 @@ export function radarRow(row: BoardRow, watchlist: Set<string>): RadarRow {
     regression_residual_sd: row.model.regression_residual_sd,
     regression_count: row.model.regression_count,
     regression_base: row.model.regression_base,
+    launch_odds: row.model.launch_odds,
     comparable_multiple: row.model.comparable_multiple,
     category_median: row.model.category_median,
     comparables_count: row.model.comparables_count,
@@ -763,7 +880,8 @@ export function radarRow(row: BoardRow, watchlist: Set<string>): RadarRow {
 /** Everything the dashboard renders, from the snapshot. */
 export function buildRadar(snapshot: Snapshot, model: ModelConstants = MODEL): { board: BoardRow[]; radar: RadarData } {
   const regression = fitRegression(snapshot);
-  const board = buildBoard(snapshot, model, regression);
+  const odds = fitOdds(snapshot, model);
+  const board = buildBoard(snapshot, model, regression, odds);
   const comparables = computeComparables(snapshot);
   const live = liveRows(snapshot);
   const watchlist = new Set(snapshot.watchlist);
@@ -771,6 +889,9 @@ export function buildRadar(snapshot: Snapshot, model: ModelConstants = MODEL): {
   const comparablesList = [...comparables.byCategory.entries()]
     .map(([category, v]) => ({ category, median: v.median, count: v.count }))
     .sort((a, b) => (a.category < b.category ? -1 : a.category > b.category ? 1 : 0));
+  // The 758 audit: every protocol in the snapshot, filed in exactly one lane.
+  const liveTotal = snapshot.protocols.filter((p) => !isPreToken(p)).length;
+  const excludedPreToken = snapshot.protocols.filter((p) => isPreToken(p) && !isRankable(p)).length;
   const radar: RadarData = {
     as_of: snapshot.as_of,
     source: snapshot.source,
@@ -784,9 +905,13 @@ export function buildRadar(snapshot: Snapshot, model: ModelConstants = MODEL): {
     global_median: comparables.global.median,
     median_age_days: model.unknown_age_days,
     regression: { intercept: regression.intercept, slope: regression.slope, residual_sd: regression.residualSd, count: regression.count },
+    odds: { buckets: odds.buckets, count: odds.count, base_rate: odds.baseRate },
     comparables: comparablesList,
     rows: board.map((r) => radarRow(r, watchlist)),
     live,
+    snapshot_total: snapshot.protocols.length,
+    live_total: liveTotal,
+    excluded_pre_token: excludedPreToken,
   };
   return { board, radar };
 }

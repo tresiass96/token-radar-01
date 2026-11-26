@@ -41,6 +41,9 @@ button{cursor:pointer}
 .lede p{color:var(--muted);max-width:64ch;margin-top:var(--s1)}
 .cover{font-size:13px;color:var(--accent);font-weight:600;margin-bottom:var(--s1)}
 .facts{display:grid;gap:var(--s1);align-content:start;border-left:1px solid var(--border);padding-left:var(--s3)}
+.strip{margin-top:var(--s2);border:1px solid var(--border-strong);border-radius:6px;background:var(--surface);padding:8px 12px;font-size:12px;color:var(--muted);display:flex;flex-wrap:wrap;gap:4px 16px;align-items:baseline}
+.strip b{color:var(--ink);font-size:12px}
+.econ{margin-top:8px;font-size:13px;font-weight:600;color:var(--ink)}
 .fact{display:flex;align-items:baseline;justify-content:space-between;gap:var(--s2)}
 .fact span{color:var(--muted);font-size:13px}
 .fact b{font-size:15px;font-weight:650}
