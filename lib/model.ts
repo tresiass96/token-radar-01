@@ -16,11 +16,21 @@
 //                                  residuals, sqrt(mean(r^2)) — the same convention the LOO
 //                                  evaluation reports (NumPy .std(), ddof=0).
 //   regression base              10^(a + b x log10(TVL)): the fitted market cap for a protocol
-//                                  of this TVL, before any adjustment.
-//   momentumFactor(change_7d)      1 + clamp(change_7d, -60, 120) / 100 x 0.5, clamped to [0.8, 1.5];
-//                                  null change_7d -> 1.0 (neutral, stated on the page)
-//   maturityFactor(age)            0.8 + min(age, 1095) / 1095 x 0.2; age = as_of - listed_at in days;
-//                                  null listed_at -> 513 days (the pre-token median age, factor 0.8937)
+//                                  of this TVL. In radar-5 this IS the launch value: the
+//                                  momentum and maturity multipliers of radar-4 are GONE.
+//                                  They never passed a blind test (work/v5-ablation.py:
+//                                  LOO 0.538 vs 0.531 OLS-alone, time-split 0.491 vs 0.488,
+//                                  split-half 0.559 vs 0.565, paired P ~53%; fitted weights
+//                                  negative, momentum -7.52, maturity -2.48), and the
+//                                  Methodology's "priced by the curve alone" was false
+//                                  while they were applied. Their v4 formulas, kept here
+//                                  so the ablation stays auditable:
+//                                    momentum = 1 + clamp(change_7d, -60, 120)/100 x 0.5,
+//                                      clamped [0.8, 1.5]; null -> 1.0
+//                                    maturity = 0.8 + min(age, 1095)/1095 x 0.2;
+//                                      null age -> 513 days (0.8937)
+//                                  Both are dropped, not refitted: the fitted weights say
+//                                  the multipliers push predictions the wrong way.
 //   launch odds                    the peer-group base rate: the share of protocols first listed
 //                                  in the same age bucket that already record a token, computed
 //                                  at runtime from the snapshot (n = 522 dated, non-exchange,
@@ -34,13 +44,35 @@
 //                                  the fit's own residual spread, shown on every row so the page
 //                                  never pretends to price a launch precisely. The band is drawn
 //                                  around the expected value (launch band x odds).
+//   P10–P90 interval               [launch x 10^q10, launch x 10^q90] x odds, where q10/q90 are
+//                                  the 10th/90th percentiles of the fit residuals (q10 -1.19,
+//                                  q90 +0.93 dex in this snapshot): a per-row range, not one
+//                                  global band. Measured held-out coverage on the 128 comps
+//                                  (leave-one-out, interval from the train residuals only) is
+//                                  78.9% (101/128); a 200x bootstrap refit cross-check agrees
+//                                  with the P10 within 10% on 95% of rows (work/v5-intervals.py).
+//                                  The rank range is the ranks the row's P90/P10 values would
+//                                  take on the point-estimate board — wide (median 184 ranks),
+//                                  because the value intervals are wide. The board ranks point
+//                                  estimates; the range says how far a row could move.
+//   net $/hour at P10              the farmer's-eye check at the P10 launch value: expected
+//                                  payout = P10 launch x 10% airdrop pool (assumption, not a
+//                                  measurement) x capital/TVL (pro-rata share) x odds, minus
+//                                  gas (funding + $8/$4 setup + $2/week) and 5% APR opportunity
+//                                  cost on the capital, divided by the work hours (45 min setup
+//                                  + 15 min/week + 10 min claim). Costed call: Farm at >= $25/h,
+//                                  Thin at >= $0/h, Skip below — forced Skip if P10 launch is
+//                                  under $1M. At pro-rata shares no row clears $0/h (median
+//                                  -$7.34/h); the panel states the break-even pool share instead
+//                                  (median 0.19% of the pool).
 //   comparables cross-check        the v2 multiple (category median mcap/TVL, shrunk toward the
 //                                  global median with w = n/(n+5), capped [0.02, 1.00]; fewer than
 //                                  3 comparables falls back to the global median) and the implied
 //                                  value it would give. Shown for reference on every detail page;
 //                                  it does not drive the ranking.
-//   launch value = regression base x momentumFactor x maturityFactor, clamped to [$1M, $100T]:
-//                  the value if the token launches.
+//   launch value = regression base, clamped to [$1M, $100T]:
+//                  the value if the token launches. (radar-4 multiplied the base by
+//                  momentum x maturity; radar-5 drops both — see above.)
 //   implied = round(launch value x launch odds), clamped to [$1M, $100T]:
 //             the EXPECTED value — the ranking quantity. The board ranks expected value,
 //             not value-if-launched, so two protocols with the same TVL can rank apart
@@ -81,20 +113,6 @@ export interface ModelConstants {
   multiple_cap_hi: number;
   /** A category needs at least this many comparables or it falls back to the global median. */
   min_comparables: number;
-  /** Momentum weight on the clamped 7-day change. */
-  momentum_weight: number;
-  /** The 7-day change is clamped to this range (per cent) before the momentum weight applies. */
-  growth_floor: number;
-  growth_cap: number;
-  /** The momentum factor itself is clamped to this range. */
-  momentum_lo: number;
-  momentum_hi: number;
-  /** Momentum factor when change_7d is null. */
-  momentum_null: number;
-  /** Maturity floor and range: factor = floor + min(age, maturity_days)/maturity_days x range. */
-  maturity_floor: number;
-  maturity_range: number;
-  maturity_days: number;
   /** Age in days used when listed_at is null (the pre-token median age). */
   unknown_age_days: number;
   /** The implied value is clamped to this range. */
@@ -115,15 +133,6 @@ export const MODEL: ModelConstants = {
   multiple_cap_lo: 0.02,
   multiple_cap_hi: 1.0,
   min_comparables: 3,
-  momentum_weight: 0.5,
-  growth_floor: -60,
-  growth_cap: 120,
-  momentum_lo: 0.8,
-  momentum_hi: 1.5,
-  momentum_null: 1.0,
-  maturity_floor: 0.8,
-  maturity_range: 0.2,
-  maturity_days: 1095,
   unknown_age_days: 513,
   implied_min: 1_000_000,
   implied_max: 100_000_000_000_000,
@@ -136,7 +145,7 @@ export const MODEL: ModelConstants = {
 };
 
 /** The model's version label: the dashboard names it and the rules quote it. */
-export const MODEL_VERSION = 'radar-4';
+export const MODEL_VERSION = 'radar-5';
 
 /** How many live-token protocols the Live token view carries, by market cap. */
 export const LIVE_ROWS = 24;
@@ -157,6 +166,10 @@ export interface RegressionFit {
   slope: number;
   /** Population sd of the log10 residuals, sqrt(mean(r^2)) — the uncertainty band's half-width in dex. */
   residualSd: number;
+  /** 10th percentile of the log10 residuals (linear interpolation) — the P10 interval's lower edge. */
+  residualQ10: number;
+  /** 90th percentile of the log10 residuals (linear interpolation) — the P90 interval's upper edge. */
+  residualQ90: number;
   /** How many tokened protocols the fit was computed from. */
   count: number;
 }
@@ -206,7 +219,7 @@ export interface BoardRow {
   age_days: number | null;
   /** The EXPECTED value: launch value x launch odds, clamped — the ranking quantity. */
   implied_value_usd: number;
-  /** The value if the token launches: regression base x momentum x maturity, clamped. */
+  /** The value if the token launches: the regression base, clamped. */
   launch_value_usd: number;
   /** The peer-group base rate for this row's age bucket. */
   launch_odds: number;
@@ -214,12 +227,26 @@ export interface BoardRow {
   value_low_usd: number;
   /** The uncertainty band's upper end: implied x 10^residual_sd, clamped to the value range. */
   value_high_usd: number;
+  /** The P10 expected value: P10 launch value x launch odds, clamped. */
+  value_p10_usd: number;
+  /** The P90 expected value: P90 launch value x launch odds, clamped. */
+  value_p90_usd: number;
+  /** The rank the row's P90 value would take on the point-estimate board (best case). */
+  rank_p90: number;
+  /** The rank the row's P10 value would take on the point-estimate board (worst case). */
+  rank_p10: number;
+  /** Net $/hour at the P10 launch value (see netPerHourP10): the costed check, not the verdict. */
+  net_per_hour_p10_usd: number;
+  /** The costed call at P10: Farm at >= $25/h, Thin at >= $0/h, Skip below (forced Skip if P10 launch < $1M). */
+  costed_call: 'Farm' | 'Thin' | 'Skip';
   verdict: 'Farm now' | 'Watch' | 'Skip';
   verdict_reason: string;
   model: {
     regression_intercept: number;
     regression_slope: number;
     regression_residual_sd: number;
+    regression_residual_q10: number;
+    regression_residual_q90: number;
     regression_count: number;
     regression_base: number;
     launch_odds: number;
@@ -229,9 +256,6 @@ export interface BoardRow {
     comparable_source: 'category' | 'global';
     concentration_factor: number;
     comparable_implied: number;
-    growth_pct: number;
-    momentum_factor: number;
-    maturity_factor: number;
     age_days: number | null;
   };
   farm_steps: string[];
@@ -254,12 +278,20 @@ export interface RadarRow {
   launch_odds: number;
   value_low_usd: number;
   value_high_usd: number;
+  value_p10_usd: number;
+  value_p90_usd: number;
+  rank_p90: number;
+  rank_p10: number;
+  net_per_hour_p10_usd: number;
+  costed_call: 'Farm' | 'Thin' | 'Skip';
   verdict: 'Farm now' | 'Watch' | 'Skip';
   verdict_reason: string;
   watchlist: boolean;
   regression_intercept: number;
   regression_slope: number;
   regression_residual_sd: number;
+  regression_residual_q10: number;
+  regression_residual_q90: number;
   regression_count: number;
   regression_base: number;
   launch_value: number;
@@ -269,8 +301,6 @@ export interface RadarRow {
   comparable_source: 'category' | 'global';
   concentration_factor: number;
   comparable_implied: number;
-  momentum_factor: number;
-  maturity_factor: number;
   farm_steps: string[];
 }
 
@@ -298,7 +328,7 @@ export interface RadarData {
   live_size: number;
   global_median: number;
   median_age_days: number;
-  regression: { intercept: number; slope: number; residual_sd: number; count: number };
+  regression: { intercept: number; slope: number; residual_sd: number; residual_q10: number; residual_q90: number; count: number };
   odds: { buckets: { lo: number; hi: number | null; rate: number; count: number }[]; count: number; base_rate: number };
   comparables: { category: string; median: number; count: number }[];
   rows: RadarRow[];
@@ -401,11 +431,36 @@ export function fitRegression(snapshot: Snapshot): RegressionFit {
   const slope = sxy / sxx;
   const intercept = my - slope * mx;
   let ss = 0;
+  const residuals: number[] = [];
   for (let i = 0; i < n; i++) {
     const r = ys[i]! - (intercept + slope * xs[i]!);
     ss += r * r;
+    residuals.push(r);
   }
-  return { intercept, slope, residualSd: Math.sqrt(ss / n), count: n };
+  residuals.sort((a, b) => a - b);
+  return {
+    intercept,
+    slope,
+    residualSd: Math.sqrt(ss / n),
+    residualQ10: quantileOf(residuals, 0.1),
+    residualQ90: quantileOf(residuals, 0.9),
+    count: n,
+  };
+}
+
+/**
+ * A quantile of a sorted array by linear interpolation — the same rule NumPy's
+ * percentile uses, so the runtime fit reproduces the evaluation scripts'
+ * q10/q90 exactly (in this snapshot q10 -1.1916, q90 +0.9286 dex).
+ */
+export function quantileOf(sorted: number[], p: number): number {
+  const n = sorted.length;
+  if (n === 0) return 0;
+  const pos = (n - 1) * p;
+  const lo = Math.floor(pos);
+  const hi = Math.ceil(pos);
+  if (lo === hi) return sorted[pos]!;
+  return sorted[lo]! * (1 - (pos - lo)) + sorted[hi]! * (pos - lo);
 }
 
 /**
@@ -455,7 +510,7 @@ export function launchOdds(ageDaysValue: number | null, odds: LaunchOdds, model:
   return odds.baseRate;
 }
 
-/** The fitted market cap for a protocol of this TVL, before momentum and maturity. */
+/** The fitted market cap for a protocol of this TVL: the launch value itself in radar-5. */
 export function regressionBase(tvlUsd: number, fit: RegressionFit): number {
   return 10 ** (fit.intercept + fit.slope * Math.log10(tvlUsd));
 }
@@ -500,30 +555,86 @@ export function comparableMultiple(
 }
 
 /**
- * The momentum factor for a 7-day TVL change: 1 + the clamped change (per cent) times the weight,
- * clamped to [momentum_lo, momentum_hi]. A null change is neutral (1.0), stated on the page.
+ * The P10/P90 launch values for a protocol: the regression prediction shifted by the
+ * fit residuals' 10th/90th percentiles, clamped to the value range. The P10/P90
+ * expected values are these times the launch odds. This is the shipped interval
+ * construction: per-row, from the fit's own residuals — no global band, no bootstrap
+ * at runtime (the 200x bootstrap in work/v5-intervals.py only cross-checks it).
  */
-export function momentumFactor(change7d: number | null, model: ModelConstants = MODEL): { factor: number; growthPct: number } {
-  if (change7d === null || !Number.isFinite(change7d)) return { factor: model.momentum_null, growthPct: 0 };
-  const growthPct = Math.min(model.growth_cap, Math.max(model.growth_floor, change7d));
-  const factor = Math.min(model.momentum_hi, Math.max(model.momentum_lo, 1 + (growthPct / 100) * model.momentum_weight));
-  return { factor, growthPct };
+export function intervalValues(
+  tvlUsd: number,
+  fit: RegressionFit,
+  launchOddsValue: number,
+  model: ModelConstants = MODEL,
+): { p10Launch: number; p90Launch: number; p10: number; p90: number } {
+  const pred = fit.intercept + fit.slope * Math.log10(tvlUsd);
+  const clamp = (x: number): number => Math.min(model.implied_max, Math.max(model.implied_min, Math.round(x)));
+  const p10Launch = clamp(10 ** (pred + fit.residualQ10));
+  const p90Launch = clamp(10 ** (pred + fit.residualQ90));
+  return { p10Launch, p90Launch, p10: clamp(p10Launch * launchOddsValue), p90: clamp(p90Launch * launchOddsValue) };
+}
+
+/** The gas midpoint for one transaction on a chain — the numeric twin of gasFor's ranges. */
+export function gasMidFor(chain: string): number {
+  const c = chain.toLowerCase();
+  if (c === 'ethereum') return 8.5;
+  if (
+    c === 'arbitrum' || c === 'optimism' || c === 'base' || c === 'zksync' || c === 'zksync era' ||
+    c === 'polygon' || c === 'blast' || c === 'linea' || c === 'scroll' || c === 'mantle' ||
+    c === 'mode' || c === 'starknet' || c === 'taiko' || c === 'fraxtal' || c === 'merlin'
+  ) return 0.275;
+  if (c === 'solana') return 0.01;
+  if (c === 'bsc' || c === 'binance' || c === 'avalanche' || c === 'fantom' || c === 'cronos' || c === 'celo') return 0.55;
+  return 1;
 }
 
 /**
- * The maturity factor for an age without a token: floor + min(age, maturity_days)/maturity_days x
- * range. A null age uses unknown_age_days (the pre-token median age), stated on the page.
+ * Net $/hour at the P10 launch value: the farmer's-eye check, computed from the same
+ * inputs the farm plan uses (capital by TVL band, gas by chain, hold by age) plus two
+ * stated assumptions — A1: the airdrop pool is 10% of the launch value (typical
+ * allocations cluster 5–15%; 10% is the midpoint, an assumption, not a measurement);
+ * A2: the farmer's share of the pool is capital/TVL, pro-rata on deposits (OlosLabs'
+ * formula with deposits ~= TVL; points programs may pay active farmers more, so this
+ * is a conservative, pro-rata share). Expected payout = P10 launch x 10% x share x
+ * odds. Costs: one funding transaction at the gas midpoint + the farm plan's setup
+ * figure ($8 if capital >= $500 else $4) + $2/week, plus 5% APR opportunity cost on
+ * the capital over the hold. Hours: 45 min setup + 15 min/week + 10 min claim.
+ * Returns dollars per hour, rounded to cents; the costed call thresholds ($25/$0)
+ * are applied by costedCall.
  */
-export function maturityFactor(ageDaysValue: number | null, model: ModelConstants = MODEL): number {
-  const age = ageDaysValue ?? model.unknown_age_days;
-  return model.maturity_floor + (Math.min(Math.max(age, 0), model.maturity_days) / model.maturity_days) * model.maturity_range;
+export function netPerHourP10(
+  protocol: SnapshotProtocol,
+  p10Launch: number,
+  launchOddsValue: number,
+  age: number | null,
+  model: ModelConstants = MODEL,
+): number {
+  const capital = capitalFor(protocol);
+  const chain = chainOf(protocol);
+  const gasMid = gasMidFor(chain);
+  const hold = holdDaysFor(age);
+  const weeks = Math.ceil(hold / 7);
+  const hours = 0.75 + 0.25 * weeks + 10 / 60;
+  const gas = gasMid + (capital >= 500 ? 8 : 4) + 2 * weeks;
+  const opp = capital * 0.05 * (hold / 365);
+  const payout = p10Launch * 0.1 * (capital / protocol.tvl_usd) * launchOddsValue;
+  const net = payout - gas - opp;
+  return Math.round((net / hours) * 100) / 100;
 }
 
-/** The multipliers and the implied value one protocol gets under `model`. The value is priced by the
- * regression fit and weighted by the launch odds; the comparables multiple is computed alongside
- * as a cross-check and the implied value it would give is carried so the dashboard can show both
- * numbers side by side. `implied` is the EXPECTED value (launch value x odds) — the ranking
- * quantity. `launchValue` is the value if the token launches. */
+/** The costed call at P10: Farm at >= $25/h, Thin at >= $0/h, Skip below — forced Skip if the P10 launch value is under $1M. */
+export function costedCall(netPerHour: number, p10Launch: number): 'Farm' | 'Thin' | 'Skip' {
+  if (p10Launch < 1_000_000 || netPerHour < 0) return 'Skip';
+  if (netPerHour >= 25) return 'Farm';
+  return 'Thin';
+}
+
+/** The implied value one protocol gets under `model`. The value is priced by the
+ * regression fit alone and weighted by the launch odds; the comparables multiple is
+ * computed alongside as a cross-check and the implied value it would give is carried
+ * so the dashboard can show both numbers side by side. `implied` is the EXPECTED
+ * value (launch value x odds) — the ranking quantity. `launchValue` is the value if
+ * the token launches, and in radar-5 it equals the regression base. */
 export function impliedValue(
   protocol: SnapshotProtocol,
   asOf: string,
@@ -538,31 +649,33 @@ export function impliedValue(
   base: number;
   valueLow: number;
   valueHigh: number;
+  p10Launch: number;
+  p90Launch: number;
+  p10: number;
+  p90: number;
+  netPerHourP10: number;
+  costedCall: 'Farm' | 'Thin' | 'Skip';
   comparableImplied: number;
   multiple: number;
   rawMedian: number | null;
   count: number;
   source: 'category' | 'global';
   concentrationFactor: number;
-  growthPct: number;
-  momentum: number;
-  maturity: number;
   age: number | null;
 } {
   const age = ageDays(asOf, protocol.listed_at);
   const comp = comparableMultiple(protocol.category, comparables, model);
-  const mom = momentumFactor(protocol.change_7d, model);
-  const maturity = maturityFactor(age, model);
   const base = regressionBase(protocol.tvl_usd, fit);
-  const launchRaw = base * mom.factor * maturity;
-  const launchValue = Math.min(model.implied_max, Math.max(model.implied_min, Math.round(launchRaw)));
+  const launchValue = Math.min(model.implied_max, Math.max(model.implied_min, Math.round(base)));
   const launchOddsValue = launchOdds(age, odds, model);
   const raw = launchValue * launchOddsValue;
   const implied = Math.min(model.implied_max, Math.max(model.implied_min, Math.round(raw)));
   const band = uncertaintyBand(implied, fit, model);
-  const compRaw = protocol.tvl_usd * comp.multiple * mom.factor * maturity;
+  const interval = intervalValues(protocol.tvl_usd, fit, launchOddsValue, model);
+  const net = netPerHourP10(protocol, interval.p10Launch, launchOddsValue, age, model);
+  const compRaw = protocol.tvl_usd * comp.multiple;
   const comparableImplied = Math.min(model.implied_max, Math.max(model.implied_min, Math.round(compRaw)));
-  return { implied, launchValue, launchOdds: launchOddsValue, base, valueLow: band.low, valueHigh: band.high, comparableImplied, multiple: comp.multiple, rawMedian: comp.rawMedian, count: comp.count, source: comp.source, concentrationFactor: comp.concentrationFactor, growthPct: mom.growthPct, momentum: mom.factor, maturity, age };
+  return { implied, launchValue, launchOdds: launchOddsValue, base, valueLow: band.low, valueHigh: band.high, p10Launch: interval.p10Launch, p90Launch: interval.p90Launch, p10: interval.p10, p90: interval.p90, netPerHourP10: net, costedCall: costedCall(net, interval.p10Launch), comparableImplied, multiple: comp.multiple, rawMedian: comp.rawMedian, count: comp.count, source: comp.source, concentrationFactor: comp.concentrationFactor, age };
 }
 
 /** DefiLlama's version-marker rule: a name ending in a release is a pool of another protocol. */
@@ -775,6 +888,10 @@ export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL, fi
       b.p.tvl_usd - a.p.tvl_usd ||
       (a.p.slug < b.p.slug ? -1 : a.p.slug > b.p.slug ? 1 : 0),
   );
+  // Rank ranges: the rank a row's P90/P10 expected value would take on this board
+  // (count of rows with a strictly larger expected value, +1). Computed after the
+  // sort, from the point-estimate board itself — no extra data, fully deterministic.
+  const rankOfValue = (value: number): number => scored.reduce((n, s) => n + (s.v.implied > value ? 1 : 0), 0) + 1;
   return scored.map((s, i) => ({
     rank: i + 1,
     slug: s.p.slug,
@@ -794,6 +911,12 @@ export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL, fi
     launch_odds: s.v.launchOdds,
     value_low_usd: s.v.valueLow,
     value_high_usd: s.v.valueHigh,
+    value_p10_usd: s.v.p10,
+    value_p90_usd: s.v.p90,
+    rank_p90: rankOfValue(s.v.p90),
+    rank_p10: rankOfValue(s.v.p10),
+    net_per_hour_p10_usd: s.v.netPerHourP10,
+    costed_call: s.v.costedCall,
     verdict: s.verdict.verdict,
     verdict_reason: s.verdict.reason,
     model: {
@@ -802,6 +925,8 @@ export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL, fi
       regression_intercept: regression.intercept,
       regression_slope: regression.slope,
       regression_residual_sd: regression.residualSd,
+      regression_residual_q10: regression.residualQ10,
+      regression_residual_q90: regression.residualQ90,
       regression_count: regression.count,
       regression_base: s.v.base,
       launch_value: s.v.launchValue,
@@ -812,9 +937,6 @@ export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL, fi
       comparable_source: s.v.source,
       concentration_factor: s.v.concentrationFactor,
       comparable_implied: s.v.comparableImplied,
-      growth_pct: s.v.growthPct,
-      momentum_factor: s.v.momentum,
-      maturity_factor: s.v.maturity,
       age_days: s.v.age,
     },
     farm_steps: farmSteps(s.p, s.v.age, s.verdict.verdict, s.verdict.reason).map(stepText),
@@ -856,12 +978,20 @@ export function radarRow(row: BoardRow, watchlist: Set<string>): RadarRow {
     launch_odds: row.launch_odds,
     value_low_usd: row.value_low_usd,
     value_high_usd: row.value_high_usd,
+    value_p10_usd: row.value_p10_usd,
+    value_p90_usd: row.value_p90_usd,
+    rank_p90: row.rank_p90,
+    rank_p10: row.rank_p10,
+    net_per_hour_p10_usd: row.net_per_hour_p10_usd,
+    costed_call: row.costed_call,
     verdict: row.verdict,
     verdict_reason: row.verdict_reason,
     watchlist: watchlist.has(row.slug),
     regression_intercept: row.model.regression_intercept,
     regression_slope: row.model.regression_slope,
     regression_residual_sd: row.model.regression_residual_sd,
+    regression_residual_q10: row.model.regression_residual_q10,
+    regression_residual_q90: row.model.regression_residual_q90,
     regression_count: row.model.regression_count,
     regression_base: row.model.regression_base,
     launch_odds: row.model.launch_odds,
@@ -871,8 +1001,6 @@ export function radarRow(row: BoardRow, watchlist: Set<string>): RadarRow {
     comparable_source: row.model.comparable_source,
     concentration_factor: row.model.concentration_factor,
     comparable_implied: row.model.comparable_implied,
-    momentum_factor: row.model.momentum_factor,
-    maturity_factor: row.model.maturity_factor,
     farm_steps: row.farm_steps,
   };
 }
@@ -904,7 +1032,7 @@ export function buildRadar(snapshot: Snapshot, model: ModelConstants = MODEL): {
     live_size: live.length,
     global_median: comparables.global.median,
     median_age_days: model.unknown_age_days,
-    regression: { intercept: regression.intercept, slope: regression.slope, residual_sd: regression.residualSd, count: regression.count },
+    regression: { intercept: regression.intercept, slope: regression.slope, residual_sd: regression.residualSd, residual_q10: regression.residualQ10, residual_q90: regression.residualQ90, count: regression.count },
     odds: { buckets: odds.buckets, count: odds.count, base_rate: odds.baseRate },
     comparables: comparablesList,
     rows: board.map((r) => radarRow(r, watchlist)),
