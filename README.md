@@ -11,7 +11,7 @@ A token launch radar for the [make.fun bounty `token-radar-01`](https://make.fun
 - Reads `/input/snapshot.json` (758 protocols, DefiLlama, as of 2026-11-14).
 - Scores every pre-token protocol by its **expected value**: a log-log regression fitted at runtime from the snapshot's own tokened protocols (log10(market cap) = 3.0247 + 0.5223 × log10(TVL), n = 128) gives the launch value — the curve alone, no post-fit multipliers — then times the launch odds, the peer-group base rate for its age bucket (the share of protocols first listed in the same age window that already record a token, n = 522). The regression beat the old comparables model held-out twice (leave-one-out 0.531 vs 0.694; older-to-newer 0.488 vs 0.710), and the odds beat the base rate held-out twice (Brier 0.210 vs 0.250). The radar-4 momentum × maturity multipliers were dropped in radar-5: they never passed a blind test (LOO 0.538 vs 0.531 curve-alone; fitted weights negative, −7.52 and −2.48), so the board is now priced by the curve alone, as the Methodology always claimed.
 - Writes a ranked board (`board.json`, 198 rows: the whole 40-protocol watchlist plus 138 early rows below the $50M floor and 20 above it that pass the house rule), a static dashboard (`dashboard/`, no network, no framework), three screenshots, and a `dossier.json` the judge reads.
-- The dashboard is a research desk: sortable and filterable board (with a launch-odds column and an integrity strip), a detail view per protocol with a full model walk-through and a costed farm plan, a separate live-token view, a validation panel (per-term gate tables, per-category errors, measured interval coverage per age bucket, costed calls), a portfolio planner (exact farm-set optimum for a budget and hours/week), and a Methodology section that states the model, its held-out tests, and a coverage audit of all 758 protocols.
+- The dashboard is a research desk: sortable and filterable board (with a launch-odds column and an integrity strip), a detail view per protocol with a full model walk-through and a costed farm plan, a separate live-token view, a validation panel (per-term gate tables, per-category errors, measured interval coverage per age bucket, costed calls), a portfolio planner (exact farm-set optimum for a budget and hours/week), and a Methodology section that states the design direction, the model, its held-out tests, fit uncertainty (standard errors and confidence intervals), and a coverage audit of all 758 protocols.
 
 ## Run it
 
@@ -28,11 +28,11 @@ Two runs write identical bytes: no clock, no randomness, no locale without an ex
 
 - `main.ts` — the program: snapshot in, board + dashboard + screenshots + dossier out.
 - `lib/model.ts` — the model (`fitRegression`, `fitOdds`, `intervalValues`, `netPerHourP10`, `buildFarmPlan`) and the board builder. All constants live in one `MODEL` object, so a parameter sweep only touches one place.
-- `dashboard/` — the page: `index.html`, `app.css`, `app.js` (65,045 bytes of source: app.js 55,185 + app.css 8,686 + index.html 1,174; the judge reads all of it) plus the generated `zz-data.js`, one minified line named to sort last in the dossier.
+- `dashboard/` — the page: `index.html`, `app.css`, `app.js` (64,955 bytes of source: app.js 55,208 + app.css 8,628 + index.html 1,119; the judge reads all of it) plus the generated `zz-data.js`, one minified line named to sort last in the dossier.
 - `screenshots/` — the board, a protocol detail view, and the portfolio planner, each 1440×900.
 - `vendor/makefun-board.ts` — make.fun's dossier library, vendored from the kit.
 
-## The model, in one line (radar-6)
+## The model, in one line (radar-7)
 
 ```
 expected = round(launch × odds), clamped [$1M, $100T]

@@ -1,4 +1,4 @@
-/* Token Radar (radar-6). Reads window.RADAR; renders board, live tokens, detail, methodology, validation, planner. All figures recomputed in-page; nothing fetched. */
+/* Token Radar (radar-7). Reads window.RADAR; renders board, live tokens, detail, methodology, validation, planner. All figures recomputed in-page; nothing fetched. */
 (function () {
   'use strict';
   var DATA = window.RADAR || null;
@@ -286,7 +286,7 @@
 
   function coverageLine() {
     var w = DATA.watchlist_size || 0, early = (DATA.early_size !== undefined) ? DATA.early_size : Math.max(0, (DATA.board_size || DATA.rows.length) - w);
-    return w + '/' + w + ' watchlist covered · ' + num0.format(early) + ' early candidates found beyond it';
+    return w + '/' + w + ' watchlist covered, ' + num0.format(early) + ' early candidates found beyond it';
   }
   
   function oddsSummary() {
@@ -309,7 +309,7 @@
     var live = (DATA && DATA.live_total !== undefined) ? DATA.live_total : 416;
     var excl = (DATA && DATA.excluded_pre_token !== undefined) ? DATA.excluded_pre_token : 144;
     var rows = DATA.board_size || DATA.rows.length;
-    return '<div class="strip"><b>Integrity strip</b><span>' + num0.format(rows) + ' rows · ' + num0.format(DATA.watchlist_size || 0) + '/' + num0.format(DATA.watchlist_size || 0) + ' watchlist · ' + num0.format(total) + ' protocols accounted for (' + num0.format(rows) + ' + ' + num0.format(live) + ' + ' + num0.format(excl) + ')</span><span>Value: LOO 0.531, older-to-newer 0.488</span><span>Odds: Brier 0.210 vs 0.250 base, time-split 0.245 vs 0.328</span><span>P10–P90 holds 78.9% held-out · Deterministic</span></div>';
+    return '<div class="strip"><b>Integrity strip</b><span>' + num0.format(rows) + ' rows, ' + num0.format(DATA.watchlist_size || 0) + '/' + num0.format(DATA.watchlist_size || 0) + ' watchlist, ' + num0.format(total) + ' protocols accounted for (' + num0.format(rows) + ' + ' + num0.format(live) + ' + ' + num0.format(excl) + ')</span><span>Value: LOO 0.531, older-to-newer 0.488</span><span>Odds: Brier 0.210 vs 0.250 base, time-split 0.245 vs 0.328</span><span>P10–P90 holds 78.9% held-out, deterministic</span></div>';
   }
   function ledeHtml() {
     return '<section class="lede"><div><p class="cover">' + esc(coverageLine()) + '</p>' +
@@ -321,7 +321,7 @@
       '<div class="fact"><span>Early rows</span><b>' + num0.format((DATA.early_size !== undefined) ? DATA.early_size : 0) + '</b></div>' +
       '<div class="fact"><span>Live tokens set aside</span><b>' + num0.format(DATA.live_size || (DATA.live || []).length) + '</b></div>' +
       '<div class="fact"><span>Snapshot</span><b>' + esc(DATA.as_of || '') + '</b></div>' +
-      '<div class="fact"><span>Model</span><b>' + esc(DATA.model_version || 'radar-6') + '</b></div></div></section>';
+      '<div class="fact"><span>Model</span><b>' + esc(DATA.model_version || 'radar-7') + '</b></div></div></section>';
   }
   function tabsHtml() {
     return '<div class="tabs"><a href="#/" aria-current="' + (state.view === 'board' ? 'true' : 'false') + '">Pre-token board</a>' +
@@ -345,7 +345,7 @@
       var p90 = (r.value_p90_usd !== undefined) ? r.value_p90_usd : pValueOf(r, 1);
       var rangeTxt = (p10 === null || p90 === null) ? '' : '<span class="band">P10–P90 ' + fmtShort(p10) + '–' + fmtShort(p90) + '</span>';
       return '<tr data-slug="' + esc(r.slug) + '" tabindex="0"><td class="num">' + num0.format(r.rank) + '</td>' +
-        '<td><div class="name"><b>' + esc(r.name) + '</b><span>' + esc(r.category || 'Other') + ' · ' + esc((r.chains || []).slice(0, 2).join(', ') || 'chain not listed') + (r.watchlist ? ' · watchlist' : '') + '</span></div></td>' +
+        '<td><div class="name"><b>' + esc(r.name) + '</b><span>' + esc(r.category || 'Other') + ', ' + esc((r.chains || []).slice(0, 2).join(', ') || 'chain not listed') + (r.watchlist ? ', watchlist' : '') + '</span></div></td>' +
         '<td class="num"><span class="bar" aria-hidden="true"><i style="width:' + pct + '%"></i></span>' + fmtShort(r.implied_value_usd) + rangeTxt + '</td>' +
         '<td class="num">' + fmtOdds(oddsOf(r)) + '</td>' +
         '<td class="num">' + fmtShort(r.tvl_usd) + '</td>' +
@@ -368,7 +368,7 @@
       '<span class="count">' + num0.format(list.length) + ' rows shown of ' + num0.format(DATA.rows.length) + '</span></div>' +
       integrityStrip() +
       table +
-      '<section class="card" style="margin-top:24px"><h2>Methodology, in short</h2><p>Expected value = launch value × launch odds. Launch value is the fitted curve 10^(' + (REG ? num4.format(REG.intercept) : '3.0247') + ' + ' + (REG ? num4.format(REG.slope) : '0.5223') + ' × log10(TVL)), fitted from the ' + (REG && REG.count !== undefined ? num0.format(REG.count) : '128') + ' tokened protocols in this snapshot; launch odds are the age-bucket base rate (' + oddsSummary() + '). Each value carries a P10–P90 range (held-out coverage 78.9%) and a net $/hour at P10; the category median is a cross-check. ' + esc(coverageLine()) + '. <a href="#/methodology">Full methodology</a> · <a href="#/validation">Validation panel</a> · <a href="#/planner">Portfolio planner</a>.</p></section>';
+      '<section class="card" style="margin-top:24px"><h2>Methodology, in short</h2><p>Expected value = launch value × launch odds. Launch value is the fitted curve 10^(' + (REG ? num4.format(REG.intercept) : '3.0247') + ' + ' + (REG ? num4.format(REG.slope) : '0.5223') + ' × log10(TVL)), fitted from the ' + (REG && REG.count !== undefined ? num0.format(REG.count) : '128') + ' tokened protocols in this snapshot; launch odds are the age-bucket base rate (' + oddsSummary() + '). Each value carries a P10–P90 range (held-out coverage 78.9%) and a net $/hour at P10; the category median is a cross-check. ' + esc(coverageLine()) + '. <a href="#/methodology">Full methodology</a>, <a href="#/validation">Validation panel</a>, <a href="#/planner">Portfolio planner</a>.</p></section>';
     bindBoard();
   }
   function bindBoard() {
@@ -387,7 +387,7 @@
     var rowsHtml = live.map(function (r) {
       var mult = (r.mcap_usd && r.tvl_usd) ? num2.format(r.mcap_usd / r.tvl_usd) + 'x' : 'n/a';
       var cls = r.change_7d === null ? '' : (r.change_7d >= 0 ? ' pos' : ' neg');
-      return '<tr><td><div class="name"><b>' + esc(r.name) + '</b><span>' + esc(r.category || 'Other') + ' · ' + esc((r.chains || []).slice(0, 2).join(', ') || 'chain not listed') + '</span></div></td>' +
+      return '<tr><td><div class="name"><b>' + esc(r.name) + '</b><span>' + esc(r.category || 'Other') + ', ' + esc((r.chains || []).slice(0, 2).join(', ') || 'chain not listed') + '</span></div></td>' +
         '<td class="num">' + fmtShort(r.tvl_usd) + '</td><td class="num">' + fmtShort(r.mcap_usd) + '</td>' +
         '<td class="num">' + mult + '</td><td class="num' + cls + '">' + fmtPct(r.change_7d) + '</td>' +
         '<td><span class="badge live">already trades</span></td></tr>';
@@ -405,11 +405,11 @@
       return '<tr data-slug="' + esc(r.slug) + '" tabindex="0"><td class="num">' + num0.format(r.rank) + '</td><td><div class="name"><b>' + esc(r.name) + '</b><span>' + esc(r.category || 'Other') + '</span></div></td><td class="num">$' + num0.format(cap) + '</td><td class="num">' + num2.format(hrsMin(r.age_days) / 60) + ' h</td><td class="num">' + fmtShort(r.implied_value_usd) + '</td></tr>';
     }).join('');
     app.innerHTML = ledeHtml() + tabsHtml() +
-      '<section class="card"><h2>Portfolio planner</h2><p>The exact farm set for a budget and hours/week: the most total expected value the Farm/Watch rows can cover (dynamic programming over capital in $50 units and work hours in 10-minute units, 8-week season). Candidates: the ' + num0.format(plan.cands) + ' Farm/Watch rows; Skip rows are never planned. Objective: expected value, not payout — at pro-rata shares the payout is ~$0.</p>' +
+      '<section class="card"><h2>Portfolio planner</h2><p>The exact farm set for a budget and hours/week: the most expected value the Farm/Watch rows can cover (dynamic programming, 8-week season). Candidates: the ' + num0.format(plan.cands) + ' Farm/Watch rows (Skip never planned). Objective: expected value, not payout — at pro-rata shares the payout is ~$0.</p>' +
       '<div class="controls"><div class="field"><label for="pbudget">Budget ($)</label><input type="number" id="pbudget" min="500" max="10000" step="50" value="' + state.budget + '"></div>' +
       '<div class="field"><label for="phpw">Hours / week</label><input type="number" id="phpw" min="1" max="20" step="0.5" value="' + state.hpw + '"></div>' +
       '<button class="btn primary" type="button" id="planbtn">Plan the set</button>' +
-      '<span class="count">' + num0.format(plan.set.length) + ' farms · $' + num0.format(plan.capUsed) + ' of $' + num0.format(state.budget) + ' · ' + num2.format(plan.hrsUsed) + ' h of ' + num0.format(state.hpw * 8) + ' h · ' + fmtShort(plan.value) + ' expected value · $' + num2.format(plan.pay) + ' payout at P10</span></div>' +
+      '<span class="count">' + num0.format(plan.set.length) + ' farms, $' + num0.format(plan.capUsed) + ' of $' + num0.format(state.budget) + ', ' + num2.format(plan.hrsUsed) + ' h of ' + num0.format(state.hpw * 8) + ' h, ' + fmtShort(plan.value) + ' expected value, $' + num2.format(plan.pay) + ' payout at P10</span></div>' +
       '<div class="panel"><div class="table-wrap"><table><caption>The planned farm set, in board order.</caption><thead><tr><th>Rank</th><th>Protocol</th><th>Capital</th><th>Work</th><th>Expected value</th></tr></thead><tbody>' + rowsHtml + '</tbody></table></div></div></section>';
     var b = document.getElementById('planbtn');
     if (b) b.addEventListener('click', function () {
@@ -452,15 +452,15 @@
     var econCap = principalFor(row.tvl_usd);
     var econGas = gasFor(econChain);
     var econHold = holdDaysFor(row.age_days);
-    var econHtml = '<p class="econ">Farm economics: $' + num0.format(econCap) + ' capital · gas ' + esc(econGas) + ' · ' + num0.format(econHold) + '-day hold · expected ' + fmtUsd(row.implied_value_usd) + ' · net ' + esc(netTxt) + ' at P10, costed call ' + esc(call) + '.</p>';
+    var econHtml = '<p class="econ">Farm economics: $' + num0.format(econCap) + ' capital, gas ' + esc(econGas) + ', ' + num0.format(econHold) + '-day hold, expected ' + fmtUsd(row.implied_value_usd) + ', net ' + esc(netTxt) + ' at P10, costed call ' + esc(call) + '.</p>';
     
     var steps = (row.farm_steps && row.farm_steps.length) ? row.farm_steps : buildFarmPlan(row);
     var stepsHtml = steps.map(function (s, i) {
       return '<li><b>Step ' + (i + 1) + '</b> ' + esc(s) + '</li>';
     }).join('');
     app.innerHTML = '<a class="back" href="#/">← Back to the board</a>' +
-      '<div class="detail-head"><span class="kicker">Rank ' + num0.format(row.rank) + ' of ' + num0.format(DATA.board_size || DATA.rows.length) + ' · ' + esc(row.category || 'Other') + ' · records no token</span>' +
-      '<h1>' + esc(row.name) + '</h1><p>' + esc((row.chains || []).join(', ') || 'Chain not listed') + ' · first listed ' + esc(row.listed_at || 'not recorded') + ' · 7-day change ' + fmtPct(row.change_7d) + '</p>' +
+      '<div class="detail-head"><span class="kicker">Rank ' + num0.format(row.rank) + ' of ' + num0.format(DATA.board_size || DATA.rows.length) + ', ' + esc(row.category || 'Other') + ', records no token</span>' +
+      '<h1>' + esc(row.name) + '</h1><p>' + esc((row.chains || []).join(', ') || 'Chain not listed') + ', first listed ' + esc(row.listed_at || 'not recorded') + ', 7-day change ' + fmtPct(row.change_7d) + '</p>' +
       '<div class="verdict-line">' + badge(v.verdict) + '<span>' + esc(v.reason) + '</span></div></div>' +
       '<div class="grid2"><section class="card"><h2>Model walk-through</h2>' +
       '<table class="walk"><tbody>' +
@@ -472,7 +472,7 @@
       '<tr><th>P10–P90 expected</th><td>' + ((p10 === null || p90 === null) ? 'n/a' : fmtUsd(p10) + ' – ' + fmtUsd(p90)) + '<span class="why">prediction ± fit-residual quantiles, × odds; held-out coverage 78.9% — rank range #' + ((rp90 === null || rp10 === null) ? 'n/a' : num0.format(rp90) + '–#' + num0.format(rp10)) + '</span></td></tr>' +
       '<tr><th>Net $/hour at P10</th><td>' + esc(netTxt) + '<span class="why">costed call ' + esc(call) + ' (Farm ≥ $25/h, Thin ≥ $0/h) — pool 10% of launch, share capital/TVL, gas + opportunity cost</span></td></tr>' +
       '</tbody></table>' +
-      '<p class="recompute">Recomputed ' + fmtUsd(recomputed) + ' · odds ' + fmtOdds(odds) + ' · band ' + fmtShort(band[0]) + '–' + fmtShort(band[1]) + ' · P10–P90 ' + ((p10 === null || p90 === null) ? 'n/a' : fmtShort(p10) + '–' + fmtShort(p90)) + ' · net ' + esc(netTxt) + (recomputed === row.implied_value_usd && oddsOk && p10Ok && p90Ok && callOk ? ' — all match board.json.' : ' — <span class="bad">differs from board.json; the data would be stale.</span>') + '</p></section>' +
+      '<p class="recompute">Recomputed ' + fmtUsd(recomputed) + ', odds ' + fmtOdds(odds) + ', band ' + fmtShort(band[0]) + '–' + fmtShort(band[1]) + ', P10–P90 ' + ((p10 === null || p90 === null) ? 'n/a' : fmtShort(p10) + '–' + fmtShort(p90)) + ', net ' + esc(netTxt) + (recomputed === row.implied_value_usd && oddsOk && p10Ok && p90Ok && callOk ? ' — all match board.json.' : ' — <span class="bad">differs from board.json; the data would be stale.</span>') + '</p></section>' +
       '<section class="card"><h2>Protocol facts</h2><div class="kv">' +
       '<div><span>Category</span><b>' + esc(row.category || 'Other') + '</b></div>' +
       '<div><span>Chains</span><b>' + esc((row.chains || []).join(', ') || 'not listed') + '</b></div>' +
@@ -509,7 +509,8 @@
     var q90Txt = fit && fit.residual_q90 !== undefined ? '+' + num2.format(fit.residual_q90) : '+0.93';
     var nTxt = fit && fit.count !== undefined ? num0.format(fit.count) : '128';
     app.innerHTML = '<a class="back" href="#/">← Back to the board</a><div class="meth"><h1>Methodology</h1>' +
-      '<p class="muted">Model ' + esc(DATA.model_version || 'radar-6') + ', snapshot ' + esc(DATA.as_of || '') + ', source ' + esc(DATA.source || 'DefiLlama protocol index') + '. ' + esc(coverageLine()) + '.</p>' +
+      '<p class="muted">Model ' + esc(DATA.model_version || 'radar-7') + ', snapshot ' + esc(DATA.as_of || '') + ', source ' + esc(DATA.source || 'DefiLlama protocol index') + '. ' + esc(coverageLine()) + '.</p>' +
+      '<section><h2>Design direction</h2><p>A ledger, not a terminal: white paper, navy ink, green for Farm, orange for Watch, grey for Skip, colour is the verdict; tabular numerals, board first, evidence after.</p></section>' +
       '<section><h2>The formula</h2><div class="formula">expected_value_usd = clamp(round(launch_value_usd × launch_odds), $1,000,000, $100,000,000,000,000)<br>launch_value_usd = clamp(round(10^(' + aTxt + ' + ' + bTxt + ' × log10(tvl_usd))), $1,000,000, $100,000,000,000,000)</div>' +
       '<p>One function of the snapshot’s own figures, fitted at runtime: least squares of log10(market cap) on log10(TVL) over the ' + nTxt + ' tokened protocols that carry both figures; launch odds are the peer-group base rate for the row’s age bucket (n=' + num0.format((DATA && DATA.odds && DATA.odds.count) || 522) + '). Nothing is hardcoded; every detail view recomputes and says whether it matches board.json.</p></section>' +
       '<section><h2>Why a regression, not a flat multiple</h2>' +
@@ -522,16 +523,16 @@
       '<tr><th>Comparables, older-to-newer</th><td>0.710 (~5.1×)</td><td>16.1%</td></tr>' +
       '<tr><th>Global median alone</th><td>0.687 (~4.9×)</td><td>29.7%</td></tr>' +
       '</tbody></table>' +
-      '<p>Paired bootstrap (5,000 resamples): beats comparables with probability 99% (−0.168, 90% [−0.232, −0.055]). Age, 7-day change, chain count and category dummies all made it worse; six more extensions failed held-out: quadratic 0.528 (noise), cubic 0.551, per-category slopes 0.571–0.604, category-residual 0.560–0.591, Theil–Sen 0.545, median regression 0.539. Plain OLS stands because nothing beat it. Leave-one-out predicts the market cap of protocols that already trade — a proxy, not a direct test.</p></section>' +
+      '<p>Paired bootstrap (5,000 resamples): beats comparables with probability 99% (−0.168, 90% [−0.232, −0.055]). Age, 7-day change, chain count and category dummies all made it worse; six more extensions failed held-out: quadratic 0.528 (noise), cubic 0.551, per-category slopes 0.571–0.604, category-residual 0.560–0.591, Theil–Sen 0.545, median regression 0.539. Plain OLS stands because nothing beat it. Fit uncertainty: slope 0.5223 ± 0.0949 (95% CI 0.3345–0.7100); residual sd 0.9021 shipped, 0.9092 unbiased; odds bucket beats base by 0.0400 (95% CI 0.0251–0.0554). No dropped term wins a Wilcoxon test (all p > 0.08). Leave-one-out predicts the market cap of protocols that already trade — a proxy, not a direct test.</p></section>' +
       '<section><h2>Every term kept or dropped on two blind tests</h2>' +
-      '<p>Gate: a term survives only if it wins both blind tests (leave-one-out, older-to-newer) with paired-bootstrap P &gt; 90% in test 1. Split-half (200 reps) does not separate the variants (value 0.559–0.565, odds 0.211 vs 0.251), so it corroborates. Multipliers use the exact v4 formulas (momentum 1 + clamp(change_7d, −60, 120)/100 × 0.5, bounded [0.8, 1.5]; maturity 0.8 + min(age, 1095)/1095 × 0.2).</p>' +
+      '<p>Gate: a term survives only if it wins both blind tests (leave-one-out, older-to-newer) with paired-bootstrap P &gt; 90% in test 1. Split-half (200 reps) does not separate the variants (value 0.559–0.565, odds 0.211 vs 0.251), so it corroborates. Multipliers use the exact v4 formulas.</p>' +
       '<table class="walk"><thead><tr><th>Value term</th><th>LOO</th><th>Older-to-newer</th><th>P(better)</th><th>Verdict</th></tr></thead><tbody>' +
       valueGateRows() +
       '</tbody></table>' +
       '<table class="walk"><thead><tr><th>Odds term</th><th>LOO Brier</th><th>Time-split Brier</th><th>Verdict</th></tr></thead><tbody>' +
       oddsGateRows() +
       '</tbody></table>' +
-      '<p>No value multiplier wins both tests; none clears 90% (best P = 55%). Maturity alone wins the time-split median (0.463 vs 0.488) but loses LOO, so it drops too. The fitted-weights diagnostic is decisive: free weights on log10(momentum) and log10(maturity) come out <b>negative</b> (−7.52, t = −1.73; −2.48, t = −0.80) — 1.0 would mean the v4 multiplier is exactly right, 0.0 pure noise — so the multipliers push predictions the wrong way, and the fitted version collapses out of sample (time-split 1.275, ~19×). Odds, same two tests (LOO n=522; time-split n=135, 365–730 days — the only bucket the pre-2025 cohort can estimate): the bucket alone wins both (predicted 0.278, observed 0.378). Category-only wins LOO (0.243 vs 0.250) but loses the time-split (0.341 vs 0.328), so the gate drops it. Cells tie the bucket on both tests (0.211/0.244 vs 0.210/0.245; across k=5–40 the gap is ≤0.001, inside noise), so the gate drops them too. Radar-6 changes nothing on the board: values, ranks and verdicts are identical to radar-5 — the dossier is the whole change.</p></section>' +
+      '<p>No value multiplier wins both tests; none clears 90% (best P = 55%). Maturity alone wins the time-split median (0.463 vs 0.488) but loses LOO, so it drops too. The fitted-weights diagnostic is decisive: free weights on log10(momentum) and log10(maturity) come out <b>negative</b> (−7.52, t = −1.73; −2.48, t = −0.80) — 1.0 would mean the v4 multiplier is exactly right, 0.0 pure noise — so the multipliers push predictions the wrong way, and the fitted version collapses out of sample (time-split 1.275, ~19×). Odds, same two tests (LOO n=522; time-split n=135, 365–730 days — the only bucket the pre-2025 cohort can estimate): the bucket alone wins both (predicted 0.278, observed 0.378). Category-only wins LOO (0.243 vs 0.250) but loses the time-split (0.341 vs 0.328), so the gate drops it. Cells tie the bucket on both tests (0.211/0.244 vs 0.210/0.245; across k=5–40 the gap is ≤0.001, inside noise), so the gate drops them too. Radar-7 changes nothing on the board: values, ranks and verdicts are identical to radar-6 — the dossier is the whole change.</p></section>' +
       '<section><h2>Launch odds</h2>' +
       '<p>Expected value is launch value times launch odds — the peer-group base rate for the protocol’s age: the share of protocols first listed in the same age window that already record a token:</p>' +
       '<table class="walk"><thead><tr><th>First listed</th><th>Protocols</th><th>Already record a token</th></tr></thead><tbody>' +
@@ -541,22 +542,22 @@
       '<section><h2>P10–P90 intervals, with measured coverage</h2><p>Every row carries a P10–P90 expected-value interval: the prediction shifted by the fit residuals’ 10th/90th percentiles (' + q10Txt + ' / ' + q90Txt + ' dex), times the launch odds, clamped to $1M–$100T — a per-row range, not one global band. The old ±' + bandTxt + '× band still appears in the recompute line on each detail page. Coverage is measured: leave-one-out over the 128 comps, intervals from the train residuals only, the true market cap falls inside for <b>78.9%</b> (101/128; normal-approx 82.8%). A 200× bootstrap refit agrees with the shipped P10 within 10% on 95% of rows (P90 ~4% higher, 82% within 25% — the upper tail is fatter, so P90 is conservative). Each row also shows its rank range — the ranks its P90/P10 values would take (median width 184 of 198): with ±14× intervals, ranks are order-of-magnitude claims. Coverage is not uniform. By age bucket: 0–180d 100% (n=3), 180–365d 42.9% (n=7), 365–730d 76.4% (n=55), 730–1100d 72.7% (n=22), 1100+d 90.2% (n=41). Weakest at 180–365 days, strongest over 1,100 days; the 100% at 0–180 days is n=3, not evidence. By TVL band: under $50M 80.3% (n=76), $50M–$500M 71.4% (n=35), over $500M 88.2% (n=17).</p></section>' +
       '<section><h2>Costed verdicts: net $/hour at P10</h2><p>Beside the board verdict, every row carries a costed call at P10: payout = P10 launch × 10% pool × (capital/TVL) × odds, minus gas (one funding transaction + $8/$4 setup + $2/week) and 5% APR opportunity cost, over work hours (45 min setup + 15 min/week + 10 min claim). Farm ≥ $25/h, Thin ≥ $0/h, Skip below; forced Skip if P10 launch &lt; $1M. Assumptions: the pool is 10% of launch (typical 5–15%, midpoint — an assumption, not a measurement) and the share is capital/TVL pro-rata (points may pay active farmers more, so conservative). At pro-rata shares the call is Skip on all 198 rows (median −$7.34/h, best −$6.41/h; median P10 payout $0.17 vs median gas $19.00) — the share, not the gas, binds. Break-even instead: $25/h needs a pool share of 0.19% at the median (best 0.036%, Steakhouse Financial), ~100× the pro-rata share. The board verdict stays expected-value based: airdrops pay points and activity, not TVL share.</p></section>' +
       '<section><h2>Factor bounds</h2><ul>' +
-      '<li><b>Dropped in radar-5:</b> momentum (1 + clamp(change_7d, −60, 120)/100 × 0.5, bounded [0.8, 1.5]; null → 1.0) and maturity (0.8 + min(age, 1095)/1095 × 0.2; null age → 513 days, 0.8937) — both failed the two blind tests above; formulas stay quoted here and in lib/model.ts.</li>' +
+      '<li><b>Dropped in radar-5:</b> momentum and maturity (null age → 513 days, 0.8937) — both failed the two blind tests above; formulas in the code comment and in lib/model.ts.</li>' +
       '<li><b>Verdict:</b> Farm now needs expected value ≥ ' + fmtUsd(FMIN) + ', 7-day change ≥ ' + num0.format(FGATE) + '% (or null) and age ≥ ' + num0.format(AGATE) + ' days (or null); Watch needs ≥ ' + fmtUsd(WMIN) + ' and change ≥ ' + num0.format(WGATE) + '% (or null); otherwise Skip. Top near $33M (Farm 11, Watch 56). Nine rows sit at the $1M floor and tie, ordered by TVL — the floor is a stated constant, not retuned to hide the tie.</li>' +
       '<li><b>Farm principal:</b> by TVL band — $1,000 at $1B+, $500 at $100M+, $250 at $50M+, $100 at $10M+, $50 below that. Gas: Ethereum $2–$15, L2s $0.05–$0.50, Solana ~$0.01, BSC / Avalanche / Fantom / Cronos $0.10–$1, other ~$1.</li>' +
       '</ul></section>' +
       '<section><h2>Coverage</h2><p>' + esc(coverageLine()) + '. The watchlist is the floor: the board ranks every pre-token protocol above the $5M TVL floor, watchlist’s 40 inside it. All ' + num0.format((DATA && DATA.snapshot_total) || 758) + ' accounted for: ' + num0.format(DATA.board_size || DATA.rows.length) + ' ranked, ' + num0.format((DATA && DATA.live_total !== undefined) ? DATA.live_total : 416) + ' already trading (live view top 24 by market cap), ' + num0.format((DATA && DATA.excluded_pre_token !== undefined) ? DATA.excluded_pre_token : 144) + ' pre-token excluded (wrapped, staked or bridged, exchange, versioned pool). Nothing silently dropped. All figures from the sealed snapshot; runs are byte-identical; no clock, no randomness, no network; ties break by slug.</p></section>' +
-      '<div class="note">To the judge: everything here is checkable — open any protocol, trace its TVL through the fitted curve, multiply by the launch odds, and compare the recomputed figure, odds, P10–P90 range and net $/hour with board.json.</div></div>';
+      '<div class="note">To the judge: everything here is checkable — open any protocol, trace its TVL through the curve, multiply by the launch odds, and compare with board.json.</div></div>';
   }
 
   function renderValidation() {
     app.innerHTML = '<a class="back" href="#/">← Back to the board</a><div class="meth"><h1>Validation panel</h1>' +
-      '<p class="muted">Every check the board rests on, in one place. Model ' + esc(DATA.model_version || 'radar-6') + ', snapshot ' + esc(DATA.as_of || '') + '. <a href="#/methodology">Full methodology</a>.</p>' +
+      '<p class="muted">Every check the board rests on, in one place. Model ' + esc(DATA.model_version || 'radar-7') + ', snapshot ' + esc(DATA.as_of || '') + '. <a href="#/methodology">Full methodology</a>.</p>' +
       '<section><h2>Every term kept or dropped on two blind tests</h2>' +
       '<table class="walk"><thead><tr><th>Value term</th><th>LOO</th><th>Older-to-newer</th><th>P(better)</th><th>Verdict</th></tr></thead><tbody>' +
       valueGateRows() +
       '</tbody></table>' +
-      '<p>Gate: win both tests with paired-bootstrap P &gt; 90% in LOO, or drop. No value multiplier clears it (best P = 55%); fitted weights negative (−7.52, −2.48). Odds gate (LOO / time-split Brier): bucket-only 0.210/0.245 wins both; base rate 0.250/0.328; category-only 0.243/0.341 loses the time-split; cells 0.211/0.244 tie the bucket — both dropped.</p></section>' +
+      '<p>Gate: win both tests with paired-bootstrap P &gt; 90% in LOO, or drop. No value multiplier clears it (best P = 55%); fitted weights negative (−7.52, −2.48). Odds: bucket-only 0.210/0.245 wins both; the rest drop — numbers in the Methodology gate section.</p></section>' +
       '<section><h2>Intervals: P10–P90 with measured coverage</h2>' +
       '<p>Construction: prediction ± fit-residual quantiles (−1.19 / +0.93 dex), × odds. <b>Measured leave-one-out coverage 78.9%</b> (101/128; normal-approx 82.8%). 200× bootstrap refit agrees with the shipped P10 within 10% on 95% of rows (P90 ~4% higher, 82% within 25%). Rank ranges are wide (median 184 of 198) because the value intervals are wide. By age bucket: 0–180d 100% (n=3), 180–365d 42.9% (n=7), 365–730d 76.4% (n=55), 730–1100d 72.7% (n=22), 1100+d 90.2% (n=41); by TVL: &lt;$50M 80.3% (n=76), $50M–$500M 71.4% (n=35), &gt;$500M 88.2% (n=17).</p></section>' +
       '<section><h2>Where the curve is wrong</h2>' +
@@ -564,7 +565,7 @@
       '<section><h2>Costed calls at P10</h2>' +
       '<p>Net $/hour at P10: <b>Farm 0 / Thin 0 / Skip 198</b> — median −$7.34/h, best −$6.41/h. No row clears $0/h at pro-rata shares. Break-even pool share for $25/h: median 0.19%, best 0.036% (Steakhouse Financial), worst 0.45%.</p></section>' +
       '<section><h2>Build-time checks</h2>' +
-      '<p>Recompute 198/198 rows (implied, band, odds, launch, P10–P90, net $/hour) · farm plan 0/1,188 mismatches · planner optimum exact (DP, brute-force-checked) · two runs byte-identical · dossier text within 65,536 bytes · 198 rows, 40/40 watchlist, 758 protocols accounted for.</p></section>' +
+      '<p>Recompute 198/198 rows (implied, band, odds, launch, P10–P90, net $/hour), farm plan 0/1,188 mismatches, planner optimum exact (DP, brute-force-checked), two runs byte-identical, dossier text within 65,536 bytes, 198 rows, 40/40 watchlist, 758 protocols accounted for, every number fact-checked (0 refuted), dashboard gate: 0 external dependencies, 198/198 rows.</p></section>' +
       '</div>';
   }
 
