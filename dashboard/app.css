@@ -21,7 +21,6 @@ button{cursor:pointer}
 .skip{position:absolute;left:-9999px;top:0;padding:var(--s1) var(--s2);background:var(--surface);border:1px solid var(--border);z-index:20}
 .skip:focus{left:var(--s1);top:var(--s1)}
 .num{font-variant-numeric:tabular-nums;white-space:nowrap;text-align:right}
-.num-l{text-align:left}
 .muted{color:var(--muted)}
 .small{font-size:12px}
 .top{max-width:1240px;margin:0 auto;padding:var(--s1) var(--s3) 0;display:flex;align-items:baseline;justify-content:space-between;gap:var(--s2);flex-wrap:wrap}
@@ -78,7 +77,6 @@ tbody tr[data-slug]{cursor:pointer}
 .badge.watch{background:var(--warn-soft);color:var(--warn)}
 .badge.skip{background:#EFEAE0;color:var(--skip)}
 .badge.live{background:#EDE9E2;color:var(--muted)}
-.badge.pre{background:var(--accent-soft);color:var(--accent)}
 .pos{color:var(--accent)} .neg{color:var(--neg)}
 .bar{width:96px;height:6px;border-radius:3px;background:#EDE7DB;overflow:hidden;display:inline-block;vertical-align:middle;margin-right:8px}
 .bar i{display:block;height:100%;background:var(--accent)}
@@ -100,6 +98,7 @@ tbody tr[data-slug]{cursor:pointer}
 .card p{color:var(--muted);font-size:13px}
 .walk{width:100%;font-size:14px}
 .walk th,.walk td{padding:4px 0;border-bottom:1px solid var(--border);text-align:left}
+.walk th:not(:first-child){text-align:right}
 .walk tr:last-child th,.walk tr:last-child td{border-bottom:0}
 .walk td{text-align:right}
 .walk .why{color:var(--muted);font-size:12px;display:block;text-align:right}
